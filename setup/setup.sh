@@ -44,5 +44,21 @@ if command -v docker &>/dev/null; then
     echo "==> Docker enabled. Log out and back in for group changes to take effect."
 fi
 
+# ── Aliases ─────────────────────────────────────────────────────────────
+# Deployed to /etc/profile.d/ so they are available system-wide to all
+# users and login shells. Re-running setup.sh simply overwrites the file,
+# which keeps this section fully idempotent.
+ALIASES_SRC="${SCRIPT_DIR}/aliases.sh"
+ALIASES_DST="/etc/profile.d/slx-aliases.sh"
+
+if [ -f "${ALIASES_SRC}" ]; then
+    echo "==> Deploying aliases to ${ALIASES_DST}..."
+    sudo cp "${ALIASES_SRC}" "${ALIASES_DST}"
+    sudo chmod 644 "${ALIASES_DST}"
+    echo "==> Aliases deployed. Open a new shell (or run: source ${ALIASES_DST}) to activate."
+else
+    echo "WARNING: ${ALIASES_SRC} not found, skipping alias deployment." >&2
+fi
+
 echo ""
 echo "==> Setup complete! All packages from pkglist.txt are installed."
