@@ -7,7 +7,7 @@ This document walks you through setting up your home server from scratch using t
 | Item | Details |
 |---|---|
 | **PC** | Windows machine with PowerShell 5+ |
-| **USB stick** | ≥ 2 GB, will be **erased** |
+| **USB stick** | between 2 and 32 GB, will be **erased** |
 | **Target machine** | x86-64 server/PC that can boot from USB |
 | **Network** | Ethernet cable recommended; Wi-Fi supported as fallback |
 | **SSH key pair** | Generate one if you don't have it: `ssh-keygen -t ed25519` |
