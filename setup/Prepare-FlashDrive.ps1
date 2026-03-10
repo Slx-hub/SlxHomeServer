@@ -73,8 +73,10 @@ if ($confirm -ne "YES") {
 }
 
 # ── Format the drive (FAT32 for broad BIOS/UEFI compatibility) ──────────
-Write-Host "Formatting ${DriveLetter}: as FAT32..." -ForegroundColor Cyan
-Format-Volume -DriveLetter $DriveLetter -FileSystem FAT32 -NewFileSystemLabel "SLXSETUP" -Confirm:$false | Out-Null
+# Format-Volume refuses FAT32 on drives > 32 GB; diskpart has no such limit.
+Write-Host "Formatting ${DriveLetter}: as FAT32 via diskpart..." -ForegroundColor Cyan
+$diskpartScript = "select volume $DriveLetter`r`nformat fs=fat32 quick label=SLXSETUP`r`n"
+$diskpartScript | diskpart | Out-Null
 
 # ── Download latest Debian netinst ISO ───────────────────────────────────
 $IsoUrl  = "https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/"
@@ -109,6 +111,9 @@ try {
 } finally {
     Dismount-DiskImage -ImagePath $IsoLocal | Out-Null
 }
+
+# ISO contents are extracted read-only; remove that flag so we can patch boot files
+Get-ChildItem -Path "${DriveRoot}\" -Recurse -File | ForEach-Object { $_.IsReadOnly = $false }
 
 # ── Place preseed and supporting files ───────────────────────────────────
 Write-Host "Copying preseed.cfg and setup files..." -ForegroundColor Cyan
