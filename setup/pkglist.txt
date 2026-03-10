@@ -1,0 +1,6 @@
+git
+docker
+docker-compose
+sudo
+systemd
+python3
