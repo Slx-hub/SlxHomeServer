@@ -26,23 +26,21 @@ while IFS= read -r pkg || [ -n "${pkg}" ]; do
     [ -z "${pkg}" ] && continue      # skip empty lines
     [[ "${pkg}" == \#* ]] && continue # skip comments
 
-    # docker-compose is provided by docker-compose-plugin in modern repos
-    if [ "${pkg}" = "docker-compose" ]; then
-        pkg="docker-compose-plugin"
-    fi
-
     echo "  -> Installing ${pkg}..."
     sudo apt-get install -y "${pkg}"
 done < "${PKGLIST}"
 
-# ── Enable and start Docker ─────────────────────────────────────────────
-if command -v docker &>/dev/null; then
-    sudo systemctl enable docker
-    sudo systemctl start docker
-    # Let slx run docker without sudo
-    sudo usermod -aG docker "$(whoami)"
-    echo "==> Docker enabled. Log out and back in for group changes to take effect."
-fi
+# ── Docker ──────────────────────────────────────────────────────────────
+# Install via the official convenience script (get.docker.com).
+# Piped directly to sh — no intermediate file needed.
+# Idempotent: the script detects an existing install and upgrades in-place.
+echo "==> Installing Docker via get.docker.com..."
+curl -fsSL https://get.docker.com | sudo sh
+sudo systemctl enable docker
+sudo systemctl start docker
+# Let the current user run docker without sudo
+sudo usermod -aG docker "$(whoami)"
+echo "==> Docker installed. Log out and back in for group membership to take effect."
 
 # ── Aliases ─────────────────────────────────────────────────────────────
 # Deployed to /etc/profile.d/ so they are available system-wide to all
