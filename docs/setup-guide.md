@@ -11,6 +11,7 @@ This document walks you through setting up your home server from scratch using t
 | **Target machine** | x86-64 server/PC that can boot from USB |
 | **Network** | Ethernet cable recommended; Wi-Fi supported as fallback |
 | **SSH key pair** | Generate one if you don't have it: `ssh-keygen -t ed25519` |
+| **Secure Boot** | Must be **disabled** in BIOS/UEFI — Windows 11 has it on by default |
 
 ## Step 1 — Prepare the Environment File
 
@@ -46,8 +47,12 @@ This document walks you through setting up your home server from scratch using t
 
 ## Step 3 — Install Debian on the Server
 
-1. Plug the prepared USB stick into your target server.
-2. Power on and boot from the USB drive (you may need to change boot order in BIOS/UEFI).
+> **Important:** The installer will **completely wipe** the main drive — Windows 11 and all existing data will be erased. This is intentional.
+
+1. Before booting, enter BIOS/UEFI and:
+   - **Disable Secure Boot** (required — the Debian installer will not boot with Secure Boot on).
+   - Set USB as the first boot device.
+2. Plug the prepared USB stick into your target server and power it on.
 3. **Walk away.** The installation is fully automatic:
    - Debian is installed to the server's main disk.
    - A user **`slx`** is created.
