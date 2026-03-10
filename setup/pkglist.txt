@@ -1,6 +1,35 @@
+# Baseline
 git
 docker
 docker-compose
 sudo
 systemd
 python3
+
+# Monitoring & diagnostics
+htop
+iotop
+ncdu
+net-tools
+dnsutils
+curl
+wget
+lsof
+strace
+
+# System utilities
+unzip
+rsync
+cron
+logrotate
+bash-completion
+man-db
+
+# Container troubleshooting
+jq
+netcat-openbsd
+iputils-ping
+traceroute
+tcpdump
+nmap
+bridge-utils
