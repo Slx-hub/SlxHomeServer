@@ -42,6 +42,31 @@ sudo systemctl start docker
 sudo usermod -aG docker "$(whoami)"
 echo "==> Docker installed. Log out and back in for group membership to take effect."
 
+# ── Firewall (ufw) ──────────────────────────────────────────────────────
+# Default: deny all inbound, allow all outbound.
+# Open only SSH (admin), HTTP/HTTPS (Caddy), and port 2222 (GitLab SSH).
+echo "==> Configuring firewall..."
+sudo ufw --force reset
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw allow 22/tcp     comment 'SSH (admin)'
+sudo ufw allow 80/tcp     comment 'HTTP  – Caddy'
+sudo ufw allow 443/tcp    comment 'HTTPS – Caddy'
+sudo ufw allow 2222/tcp   comment 'Git SSH – GitLab'
+sudo ufw --force enable
+echo "==> Firewall active. Status:"
+sudo ufw status verbose
+
+# ── fail2ban ─────────────────────────────────────────────────────────────
+# Bans IPs with repeated failed SSH attempts.
+# Default jail is enabled automatically upon install.
+echo "==> Enabling fail2ban..."
+sudo systemctl enable --now fail2ban
+
+# ── Automatic security updates ────────────────────────────────────────────
+echo "==> Enabling unattended security upgrades..."
+sudo dpkg-reconfigure -f noninteractive unattended-upgrades
+
 # ── Aliases ─────────────────────────────────────────────────────────────
 # Deployed to /etc/profile.d/ so they are available system-wide to all
 # users and login shells. Re-running setup.sh simply overwrites the file,

@@ -1,0 +1,15 @@
+# Caddyfile – reverse proxy configuration for SlxHomeServer services.
+#
+# Caddy automatically obtains and renews TLS certificates from Let's Encrypt.
+# The {$GITLAB_DOMAIN} placeholder is expanded from the GITLAB_DOMAIN
+# environment variable set in docker-compose.yml.
+
+{$GITLAB_DOMAIN} {
+    reverse_proxy gitlab:80
+}
+
+# To add more services later, append blocks like:
+#
+# {$ANOTHER_DOMAIN} {
+#     reverse_proxy another-service:8080
+# }

@@ -17,9 +17,11 @@ This document walks you through setting up your home server from scratch using t
 
 1. Open a terminal in the `setup/` folder.
 2. Copy the example file:
+
    ```powershell
    Copy-Item .env.example .env
    ```
+
 3. Edit `.env` and fill in your real values:
    - **WIFI_SSID** / **WIFI_PASSWORD** – your Wi-Fi network credentials (only needed if the server won't be on Ethernet).
    - **SSH_PUBLIC_KEY_PATH** – absolute path to your SSH **public** key (e.g. `C:\Users\you\.ssh\id_ed25519.pub`).
@@ -31,12 +33,14 @@ This document walks you through setting up your home server from scratch using t
 1. Insert the USB stick into your Windows PC.
 2. Open **PowerShell as Administrator**.
 3. Run:
+
    ```powershell
    cd path\to\SlxHomeServer\setup
    .\Prepare-FlashDrive.ps1              # defaults to drive D:
    # or specify the drive letter:
    .\Prepare-FlashDrive.ps1 -DriveLetter E
    ```
+
 4. The script will:
    - Ask for confirmation before formatting.
    - Format the drive as FAT32.
@@ -84,6 +88,7 @@ chmod +x setup.sh
 ```
 
 This installs the packages listed in `pkglist.txt`:
+
 - git, docker, docker-compose, sudo, systemd, python3
 
 After completion, log out and back in so the `docker` group membership takes effect:
@@ -94,11 +99,14 @@ ssh slx@<server-ip>
 docker run hello-world   # verify Docker works
 ```
 
-## Step 6 — You're Done!
+## Step 6 — You're Done
 
 Your home server is now up and running with:
+
 - Debian minimal install
-- Key-only SSH access
+- Key-only SSH access, `fail2ban` blocking brute-force attempts
+- `ufw` firewall (only ports 22, 80, 443, 2222 open)
+- Automatic security updates via `unattended-upgrades`
 - Docker & Docker Compose ready
 - The `SlxHomeServer` repo at `/home/slx/SlxHomeServer` for any further configuration
 
@@ -115,5 +123,5 @@ Continue to the `main/` folder for service definitions and configurations.
 | `Prepare-FlashDrive.ps1` | PowerShell script to create the bootable USB |
 | `preseed.cfg` | Debian installer answers for unattended install |
 | `late-install.sh` | Runs at end of OS install (SSH keys, Wi-Fi, repo clone) |
-| `setup.sh` | Post-SSH script to install packages |
+| `setup.sh` | Post-SSH script to install packages and configure firewall |
 | `pkglist.txt` | List of packages to install |

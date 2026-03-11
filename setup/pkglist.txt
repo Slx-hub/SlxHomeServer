@@ -28,6 +28,11 @@ jq
 netcat-openbsd
 iputils-ping
 traceroute
+
+# Security
+ufw
+fail2ban
+unattended-upgrades
 tcpdump
 nmap
 bridge-utils

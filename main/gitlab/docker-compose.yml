@@ -1,0 +1,66 @@
+services:
+  # ── Caddy (reverse proxy + automatic HTTPS) ───────────────────────────
+  # Handles TLS termination for all services.
+  # Certificates are obtained automatically from Let's Encrypt.
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80" # HTTP → redirected to HTTPS by Caddy
+      - "443:443" # HTTPS
+      - "443:443/udp" # HTTP/3
+    environment:
+      - GITLAB_DOMAIN=${GITLAB_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data # persists TLS certificates across restarts
+      - caddy_config:/config
+    networks:
+      - proxy
+
+  # ── GitLab CE ─────────────────────────────────────────────────────────
+  # Web UI and Git hosting. Not directly internet-exposed — all traffic
+  # goes through Caddy. SSH-based git clones use port 2222.
+  gitlab:
+    image: gitlab/gitlab-ce:latest
+    restart: unless-stopped
+    hostname: ${GITLAB_DOMAIN}
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'https://${GITLAB_DOMAIN}'
+
+        # Caddy handles TLS; GitLab's nginx listens on plain HTTP only
+        nginx['listen_port'] = 80
+        nginx['listen_https'] = false
+        nginx['proxy_set_headers'] = {
+          'X-Forwarded-Proto' => 'https',
+          'X-Forwarded-Ssl'   => 'on'
+        }
+
+        # The SSH port shown in clone URLs
+        gitlab_rails['gitlab_shell_ssh_port'] = 2222
+
+        # Use the root password from the .env file on first startup
+        gitlab_rails['initial_root_password'] = '${GITLAB_ROOT_PASSWORD}'
+    ports:
+      # Git over SSH — host 2222 → container 22.
+      # Host port 22 is kept for server administration.
+      - "2222:22"
+    volumes:
+      - gitlab_config:/etc/gitlab
+      - gitlab_logs:/var/log/gitlab
+      - gitlab_data:/var/opt/gitlab
+    networks:
+      - proxy
+    shm_size: 256m # recommended by GitLab for performance
+
+networks:
+  proxy:
+    driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:
+  gitlab_config:
+  gitlab_logs:
+  gitlab_data:

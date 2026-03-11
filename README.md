@@ -17,7 +17,7 @@ SlxHomeServer/
 │   ├── late-install.sh # Runs at end of OS install
 │   ├── setup.sh        # Post-SSH package installation
 │   └── pkglist.txt     # Packages to install
-├── main/               # Service configurations (coming soon)
+├── main/               # Service configurations / Applications
 └── docs/               # Documentation
     └── setup-guide.md  # Full setup walkthrough
 ```
