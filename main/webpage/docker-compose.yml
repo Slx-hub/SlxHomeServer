@@ -1,0 +1,16 @@
+services:
+  webpage:
+    image: nginx:alpine
+    restart: unless-stopped
+    expose:
+      - "50000"
+    volumes:
+      - ./index.html:/usr/share/nginx/html/index.html:ro
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - main-network
+
+networks:
+  main-network:
+    driver: bridge
+    name: main-network

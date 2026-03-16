@@ -1,0 +1,27 @@
+# Reverse proxy configuration for slakxs.de
+# Routes requests to appropriate services
+
+slakxs.de {
+    tls /etc/caddy/certs/domain.cert.pem /etc/caddy/certs/private.key.pem
+
+    # Redirect root to /main
+    redir / /main 301
+
+    # Route /main/* to the webpage service
+    handle /main/* {
+        reverse_proxy webpage:50000 {
+            header_uri /main /
+        }
+    }
+
+    # Catch-all for any other paths
+    handle {
+        error 404
+    }
+}
+
+# Redirect www.slakxs.de to slakxs.de
+www.slakxs.de {
+    tls /etc/caddy/certs/domain.cert.pem /etc/caddy/certs/private.key.pem
+    redir https://slakxs.de{uri} 301
+}
