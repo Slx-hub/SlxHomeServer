@@ -1,0 +1,33 @@
+# Porkbun Dynamic DNS Configuration
+
+porkbun:
+  # Get these from https://porkbun.com/account/api
+  api_key: ${PORKBUN_API_KEY}
+  api_secret: ${PORKBUN_API_SECRET}
+
+domain:
+  # Your full domain
+  name: slakxs.de
+  
+  # Records to update (leave empty for @, otherwise subdomain name)
+  records:
+    - name: "@"      # Root domain
+    - name: "www"    # www.slakxs.de
+    - name: "gitlab" # gitlab.slakxs.de
+
+# Public IP settings
+ip:
+  # Static IP - leave empty to auto-detect
+  static: "91.13.180.167"
+  
+  # Service to use for auto-detection if needed
+  # Options: ifconfig.me, icanhazip.com, checkip.amazonaws.com
+  auto_detect_service: "ifconfig.me"
+
+# Update frequency
+update_interval_seconds: 600  # 10 minutes
+
+# Logging
+logging:
+  level: DEBUG
+  file: /var/log/porkbun-ddns/updater.log

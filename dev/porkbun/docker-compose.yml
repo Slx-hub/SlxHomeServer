@@ -1,0 +1,21 @@
+services:
+  porkbun-ddns:
+    build: .
+    restart: unless-stopped
+    environment:
+      PORKBUN_API_KEY: ${PORKBUN_API_KEY}
+      PORKBUN_API_SECRET: ${PORKBUN_API_SECRET}
+      PORKBUN_CONFIG: config.yaml
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - porkbun_logs:/var/log/porkbun-ddns
+    networks:
+      - default
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  porkbun_logs:
