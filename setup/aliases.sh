@@ -21,3 +21,5 @@ alias du='du -h'
 alias free='free -h'
 alias ports='ss -tulnp'
 alias dps='docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"'
+alias getip='curl https://ipinfo.io/ip'
+
