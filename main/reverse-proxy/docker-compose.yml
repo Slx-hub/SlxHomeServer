@@ -13,6 +13,18 @@ services:
       - caddy_config:/config
     networks:
       - main-network
+    depends_on:
+      - auth
+
+  auth:
+    build: ../auth
+    restart: unless-stopped
+    environment:
+      AUTH_TOKEN: ${AUTH_TOKEN:-changeme}
+    networks:
+      - main-network
+    expose:
+      - "49999"
 
 volumes:
   caddy_data:
@@ -21,3 +33,4 @@ volumes:
 networks:
   main-network:
     driver: bridge
+    name: main-network

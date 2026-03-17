@@ -1,9 +1,9 @@
 services:
-  webpage:
+  secret-page:
     image: nginx:alpine
     restart: unless-stopped
     ports:
-      - "50000:50000"
+      - "50001:50001"
     volumes:
       - ./index.html:/usr/share/nginx/html/index.html:ro
       - ./nginx.conf:/etc/nginx/nginx.conf:ro

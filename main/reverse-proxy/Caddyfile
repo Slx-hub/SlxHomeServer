@@ -7,10 +7,32 @@ slakxs.de {
     # Redirect root to /main
     redir / /main 301
 
-    # Route /main/* to the webpage service
+    # Route /main/* to the webpage service (public)
     handle /main/* {
         reverse_proxy webpage:50000 {
             header_uri /main /
+        }
+    }
+
+    # Authentication endpoint - always accessible
+    handle /cookie* {
+        reverse_proxy auth:49999
+    }
+
+    # Secret page - requires authentication or localhost access
+    handle /secret* {
+        @hasAuth {
+            cookie auth_session
+        }
+        handle @hasAuth {
+            reverse_proxy secret-page:50001 {
+                header_uri /secret /
+            }
+        }
+
+        # No auth and not local - hide the page
+        handle {
+            error 404
         }
     }
 
