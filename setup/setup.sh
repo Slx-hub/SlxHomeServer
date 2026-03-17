@@ -131,6 +131,7 @@ if [ "$CONFIGURE_FIREWALL" = true ]; then
     sudo ufw --force reset
     sudo ufw default deny incoming
     sudo ufw default allow outgoing
+    sudo ufw allow from 192.168.178.0/24 comment 'Allow all ports from local network'
     sudo ufw allow 22/tcp     comment 'SSH (admin)'
     sudo ufw allow 80/tcp     comment 'HTTP  – Caddy'
     sudo ufw allow 443/tcp    comment 'HTTPS – Caddy'
