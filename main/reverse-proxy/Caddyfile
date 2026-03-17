@@ -9,9 +9,8 @@ slakxs.de {
 
     # Route /main/* to the webpage service
     handle /main/* {
-        reverse_proxy webpage:50000 {
-            header_uri /main /
-        }
+        uri strip_prefix /main
+        reverse_proxy webpage:50000
     }
 
     # Catch-all for any other paths

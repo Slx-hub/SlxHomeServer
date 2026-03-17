@@ -1,0 +1,28 @@
+services:
+  certbot:
+    build: .
+    container_name: certbot-renewer
+    restart: unless-stopped
+    volumes:
+      # Certbot's working directory
+      - certbot_data:/etc/letsencrypt
+      # Mount renewal hook for syncing certs to reverse-proxy
+      - ./post-renewal.sh:/etc/letsencrypt/renewal-hooks/post/copy-certs.sh:ro
+      # Local bind mount to reverse-proxy certs directory
+      - /home/slx/SlxHomeServer/main/reverse-proxy/certs/certbot:/mnt/certs
+    environment:
+      # Porkbun API credentials (from .env)
+      PORKBUN_API_KEY: ${PORKBUN_API_KEY}
+      PORKBUN_API_SECRET: ${PORKBUN_API_SECRET}
+    networks:
+      - main-network
+    # Run certificate renewal and check every 12 hours
+    command: renew --authenticator dns-porkbun --post-hook "/bin/sh /etc/letsencrypt/renewal-hooks/post/copy-certs.sh" -q
+
+volumes:
+  certbot_data:
+
+networks:
+  main-network:
+    external: true
+    name: main-network

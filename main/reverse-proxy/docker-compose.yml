@@ -21,3 +21,4 @@ volumes:
 networks:
   main-network:
     driver: bridge
+    name: main-network

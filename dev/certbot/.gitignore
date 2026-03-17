@@ -1,0 +1,11 @@
+# Environment variables with credentials
+.env
+.env.local
+
+# Certbot sensitive files
+porkbun_credentials.ini
+
+# Temporary files
+*.log
+*.tmp
+__pycache__/

@@ -161,9 +161,9 @@ else
 fi
 
 # ── Aliases ─────────────────────────────────────────────────────────────
-# Deployed to /etc/profile.d/ so they are available system-wide to all
-# users and login shells. Re-running setup.sh simply overwrites the file,
-# which keeps this section fully idempotent.
+# Deployed to /etc/profile.d/ for login shells and sourced from ~/.bashrc
+# for non-login shells (e.g., VS Code SSH remote). Re-running setup.sh
+# simply overwrites the file, which keeps this section fully idempotent.
 if [ "$DEPLOY_ALIASES" = true ]; then
     ALIASES_SRC="${SCRIPT_DIR}/aliases.sh"
     ALIASES_DST="/etc/profile.d/slx-aliases.sh"
@@ -172,6 +172,21 @@ if [ "$DEPLOY_ALIASES" = true ]; then
         echo "==> Deploying aliases to ${ALIASES_DST}..."
         sudo cp "${ALIASES_SRC}" "${ALIASES_DST}"
         sudo chmod 644 "${ALIASES_DST}"
+        
+        # Also source from ~/.bashrc for non-login shells (VS Code SSH remote, etc.)
+        BASHRC_MARKER="# Source system-wide aliases for non-login shells"
+        BASHRC_SOURCE="[ -f /etc/profile.d/slx-aliases.sh ] && source /etc/profile.d/slx-aliases.sh"
+        
+        if grep -q "Source system-wide aliases" ~/.bashrc 2>/dev/null; then
+            # Already present, just update it
+            sed -i "/$BASHRC_MARKER/!b;n;c\\    $BASHRC_SOURCE" ~/.bashrc
+        else
+            # Append to ~/.bashrc
+            echo "" >> ~/.bashrc
+            echo "$BASHRC_MARKER" >> ~/.bashrc
+            echo "    $BASHRC_SOURCE" >> ~/.bashrc
+        fi
+        
         echo "==> Aliases deployed. Open a new shell (or run: source ${ALIASES_DST}) to activate."
     else
         echo "WARNING: ${ALIASES_SRC} not found, skipping alias deployment." >&2
