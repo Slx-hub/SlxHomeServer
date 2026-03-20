@@ -19,6 +19,7 @@ services:
   auth:
     build: ../auth
     restart: unless-stopped
+    stop_grace_period: 2s
     environment:
       AUTH_TOKEN: ${AUTH_TOKEN:-changeme}
     networks:

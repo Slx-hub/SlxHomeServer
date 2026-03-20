@@ -1,22 +1,32 @@
 #!/bin/sh
-# Post-renewal hook: Sync entire Let's Encrypt directory structure to reverse-proxy
+# Post-renewal hook: Copy all cert files flat to reverse-proxy
 # This script runs after Certbot successfully renews certificates
 
 SOURCE_DIR="/etc/letsencrypt"
 DEST_DIR="/mnt/certs"
 
 if [ -d "$SOURCE_DIR" ]; then
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Syncing Let's Encrypt directory structure from $SOURCE_DIR to $DEST_DIR"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Copying all cert files flat to $DEST_DIR"
     
-    # Copy entire directory structure as-is
-    cp -r "$SOURCE_DIR"/* "$DEST_DIR/"
+    # Remove old files
+    rm -f "$DEST_DIR"/*
     
-    # Adjust permissions: readable files 644, private keys 600
-    find "$DEST_DIR" -type f -exec chmod 644 {} \;
-    find "$DEST_DIR" -name "privkey*.pem" -exec chmod 600 {} \;
+    # Copy all files (flat, no directory structure), excluding README
+    find "$SOURCE_DIR" -type f ! -name 'README' -exec cp {} "$DEST_DIR"/ \;
     
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Sync complete. Let's Encrypt structure mirrored to: $DEST_DIR"
-    ls -la "$DEST_DIR"/live/slakxs.de/
+    # Set permissions: readable by default, private keys 600
+    chmod 644 "$DEST_DIR"/* 2>/dev/null
+    chmod 600 "$DEST_DIR"/privkey*.pem 2>/dev/null
+    
+    # Find the latest cert files (due to renewals, files may be cert2.pem, cert3.pem, etc)
+    LATEST_CERT=$(ls -1t "$DEST_DIR"/cert*.pem 2>/dev/null | head -1)
+    LATEST_KEY=$(ls -1t "$DEST_DIR"/privkey*.pem 2>/dev/null | head -1)
+    LATEST_CHAIN=$(ls -1t "$DEST_DIR"/fullchain*.pem 2>/dev/null | head -1)
+    
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Sync complete. Latest cert files:"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')]   Cert: $(basename $LATEST_CERT)"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')]   Key:  $(basename $LATEST_KEY)"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')]   Chain: $(basename $LATEST_CHAIN)"
 else
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: Source directory not found: $SOURCE_DIR" >&2
     exit 1

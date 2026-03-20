@@ -22,7 +22,7 @@ nano .env
 
 ### 3. Initial Certificate Generation
 
-Run this once to generate the initial certificate:
+Run this once to generate the initial wildcard certificate:
 
 ```bash
 cd /home/slx/SlxHomeServer/dev/certbot
@@ -30,46 +30,49 @@ cd /home/slx/SlxHomeServer/dev/certbot
 # Build the image
 docker build -t certbot-porkbun .
 
-# Generate initial certificate
+# Generate wildcard certificate
 docker run --rm \
   -v certbot_data:/etc/letsencrypt \
   certbot-porkbun certonly \
     --authenticator dns-porkbun \
     --dns-porkbun-key $(grep PORKBUN_API_KEY .env | cut -d= -f2) \
     --dns-porkbun-secret $(grep PORKBUN_API_SECRET .env | cut -d= -f2) \
+    -d "*.slakxs.de" \
     -d slakxs.de \
-    -d www.slakxs.de \
     --agree-tos \
     --email $(grep CERTBOT_EMAIL .env | cut -d= -f2) \
     --non-interactive
 ```
 
+This generates a wildcard certificate covering:
+- `*.slakxs.de` – All subdomains
+- `slakxs.de` – Base domain
+
 ### 4. Copy Initial Certs to Reverse Proxy
 
-Copy the entire Let's Encrypt directory structure (no renaming, using canonical paths as-is):
+Copy all cert files flat (no folder structure):
 
 ```bash
-# Copy entire Let's Encrypt directory structure
 docker run --rm \
   -v certbot_data:/etc/letsencrypt:ro \
   -v /home/slx/SlxHomeServer/main/reverse-proxy/certs/certbot:/mnt/certs \
-  alpine sh -c "cp -r /etc/letsencrypt/* /mnt/certs/ && find /mnt/certs -type f -exec chmod 644 {} \; && find /mnt/certs -name 'privkey*.pem' -exec chmod 600 {} \;"
+  alpine sh -c "find /etc/letsencrypt -type f ! -name 'README' -exec cp {} /mnt/certs/ \; && chmod 644 /mnt/certs/* && chmod 600 /mnt/certs/privkey*.pem 2>/dev/null"
 ```
 
-This creates the structure at `/home/slx/SlxHomeServer/main/reverse-proxy/certs/certbot/`:
-- `live/slakxs.de/fullchain.pem` – Full certificate chain (Caddy uses this)
-- `live/slakxs.de/privkey.pem` – Private key (Caddy uses this)
-- `live/slakxs.de/cert.pem` – Certificate only
-- `live/slakxs.de/chain.pem` – Chain only
-- `archive/slakxs.de/` – All historical versions
+All cert files are copied flat to `/home/slx/SlxHomeServer/main/reverse-proxy/certs/certbot/`:
+- `fullchain1.pem` (or `fullchain2.pem` on renewal) – Full chain (used by Caddy)
+- `privkey1.pem` (or `privkey2.pem` on renewal) – Private key (used by Caddy)
+- Plus all other cert files and configs
+
+**Note:** File names increment on renewal (cert2.pem, privkey2.pem, etc). Caddy automatically picks up the latest.
 
 ### 5. Update Reverse Proxy Configuration
 
-The Caddyfile uses the canonical Let's Encrypt paths:
+The Caddyfile uses the flat cert paths:
 
 ```caddyfile
 slakxs.de {
-    tls /etc/caddy/certs/live/slakxs.de/fullchain.pem /etc/caddy/certs/live/slakxs.de/privkey.pem
+    tls /etc/caddy/certs/fullchain1.pem /etc/caddy/certs/privkey1.pem
     # ... rest of config
 }
 ```
@@ -98,8 +101,8 @@ docker-compose logs -f certbot
 The container runs Certbot's renewal check every 12 hours. When a certificate needs renewal (usually 30 days before expiry):
 
 1. Certbot renews the certificate
-2. The post-renewal hook syncs the entire Let's Encrypt directory structure to `/home/slx/SlxHomeServer/main/reverse-proxy/certs/certbot/`
-3. Caddy reads updated certificates directly from the canonical Let's Encrypt paths
+2. The post-renewal hook copies all cert files flat to `/home/slx/SlxHomeServer/main/reverse-proxy/certs/certbot/`
+3. Caddy reads from the flat cert files
 
 ## Manual Renewal
 
@@ -134,23 +137,19 @@ docker-compose logs certbot | grep -i "renewing\|success\|error"
 - `Dockerfile` – Custom image with Porkbun DNS plugin
 - `docker-compose.yml` – Service orchestration
 - `.env` – API credentials (copy from `.env.example`)
-- `post-renewal.sh` – Hook to sync entire Let's Encrypt directory to reverse-proxy
+- `post-renewal.sh` – Hook to sync cert files flat to reverse-proxy
 
-**Local cert directory structure:**
+**Local cert directory (flat structure):**
 ```
 /home/slx/SlxHomeServer/main/reverse-proxy/certs/certbot/
-├── live/
-│   └── slakxs.de/
-│       ├── fullchain.pem ← Caddy reads from here (full chain)
-│       ├── privkey.pem   ← Caddy reads from here (private key)
-│       ├── cert.pem      (leaf certificate)
-│       └── chain.pem     (intermediates)
-├── archive/
-│   └── slakxs.de/
-│       ├── cert1.pem, cert2.pem, ...       (historical)
-│       └── privkey1.pem, privkey2.pem, ... (historical)
-└── renewal/
-    └── slakxs.de.conf (Certbot renewal config)
+├── fullchain1.pem  ← Caddy reads from here (full chain)
+├── privkey1.pem    ← Caddy reads from here (private key)
+├── cert1.pem       (leaf certificate)
+├── chain1.pem      (intermediates)
+├── private_key.json
+├── meta.json
+├── slakxs.de.conf
+└── porkbun_credentials.ini
 ```
 
 ## References

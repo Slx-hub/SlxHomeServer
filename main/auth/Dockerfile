@@ -9,4 +9,4 @@ COPY app.py .
 
 EXPOSE 49999
 
-CMD ["python", "app.py"]
+CMD ["python", "-u", "app.py"]
