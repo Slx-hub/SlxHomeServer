@@ -1,0 +1,29 @@
+services:
+  jellyfin:
+    image: jellyfin/jellyfin:latest
+    container_name: jellyfin
+    restart: unless-stopped
+
+    # Host networking is required for:
+    #   - DLNA/SSDP auto-discovery (port 1900 UDP) → Smart TV finds it automatically
+    #   - Jellyfin client auto-discovery (port 7359 UDP) → Android app finds it without typing the IP
+    # Access the UI at: http://<server-ip>:8096
+    network_mode: host
+
+    volumes:
+      # Jellyfin config, metadata, and logs
+      - /data/jellyfin/config:/config
+      # Transcoding cache — can grow large; on SSD this also speeds up seeks
+      - /data/jellyfin/cache:/cache
+      # Media library (read-only — Jellyfin never needs to write here)
+      # Organise as: /data/media/movies, /data/media/tvshows, /data/media/music, /data/media/photos
+      - /data/media:/media:ro
+
+    # Intel Quick Sync / VAAPI hardware transcoding (i5-8600T, HD Graphics 630)
+    # GIDs are used instead of names because the render/video groups exist on the
+    # host but not in the container's /etc/group. Verify with: getent group video render
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - "44"   # video (host GID)
+      - "992"  # render (host GID)

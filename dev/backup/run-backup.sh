@@ -1,8 +1,20 @@
 #!/bin/bash
 # Host-side orchestration: mount drive → run backup container → unmount → reboot.
 # Called by systemd backup.service. Must run as root.
+#
+# Usage: run-backup.sh [--full]
+#   --full   Force rclone sync + tar snapshot regardless of day of week.
 
 set -uo pipefail
+
+# Pass --full through to the container if given
+CONTAINER_ARGS=""
+for arg in "$@"; do
+    case "$arg" in
+        --full) CONTAINER_ARGS="--full" ;;
+        *) echo "Unknown argument: $arg" >&2; exit 1 ;;
+    esac
+done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -33,15 +45,20 @@ fi
 
 # Run backup container
 log "Starting backup container..."
+# Ensure rclone config dir exists on the host so the bind mount is always valid.
+# Place rclone.conf here after running: sudo rclone config
+mkdir -p /etc/rclone
 BACKUP_EXIT=0
 docker run --rm \
     --name backup-runner \
     --security-opt no-new-privileges \
     -v /:/host:ro \
     -v /backup:/backup \
+    -v /etc/rclone:/etc/rclone:ro \
+    -v /data/media/photos:/data/media/photos \
     -v "$SCRIPT_DIR/backup-sources.conf:/etc/backup/backup-sources.conf:ro" \
     -v "$SCRIPT_DIR/snapshot-sources.conf:/etc/backup/snapshot-sources.conf:ro" \
-    slx-backup || BACKUP_EXIT=$?
+    slx-backup $CONTAINER_ARGS || BACKUP_EXIT=$?
 
 log "Container exited with code $BACKUP_EXIT"
 
