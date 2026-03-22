@@ -1,0 +1,22 @@
+services:
+  container-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "50001:50001"
+    volumes:
+      # Mount Docker socket so we can manage containers
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Mount the project root at its real path so docker compose paths resolve correctly
+      - /home/slx/SlxHomeServer:/home/slx/SlxHomeServer:ro
+    environment:
+      PROJECT_ROOT: /home/slx/SlxHomeServer
+    networks:
+      - main-network
+
+networks:
+  main-network:
+    external: true
+    name: main-network

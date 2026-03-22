@@ -93,7 +93,7 @@ def login():
         </html>
     """, 200)
 
-    # Set httpOnly, Secure, SameSite cookies
+    # Set httpOnly, Secure, SameSite cookies - domain covers all subdomains
     response.set_cookie(
         SESSION_COOKIE_NAME,
         value=SESSION_SECRET,
@@ -101,6 +101,7 @@ def login():
         httponly=True,
         secure=True,  # Only sent over HTTPS
         samesite="Lax",
+        domain=".slakxs.de",  # Send to all subdomains
         path="/",
     )
 

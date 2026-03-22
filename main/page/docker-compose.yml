@@ -1,5 +1,5 @@
 services:
-  webpage:
+  mainpage:
     image: nginx:alpine
     restart: unless-stopped
     ports:

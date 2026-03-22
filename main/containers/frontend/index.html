@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script>
+        // Set base href dynamically based on current location
+        const path = window.location.pathname;
+        const base = path.includes('/secret/containers') ? '/secret/containers/' : '/';
+        document.write(`<base href="${base}">`);
+    </script>
+    <title>Container Manager — SlxHomeServer</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header class="app-header">
+        <h1>🐳 Container Manager</h1>
+        <div class="header-actions">
+            <button id="btn-refresh" class="btn btn-icon" title="Refresh all">↻</button>
+        </div>
+    </header>
+
+    <main id="app" class="project-grid">
+        <div class="loading">Loading projects…</div>
+    </main>
+
+    <!-- Log modal -->
+    <div id="log-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="log-modal-title">Logs</h2>
+                <div class="log-controls">
+                    <label>Lines:
+                        <input id="log-lines" type="number" min="10" max="5000" value="100" step="50">
+                    </label>
+                    <button id="log-reload" class="btn btn-sm">Reload</button>
+                    <button id="log-close" class="btn btn-sm btn-muted">✕</button>
+                </div>
+            </div>
+            <pre id="log-output" class="log-area">Loading logs…</pre>
+        </div>
+    </div>
+
+    <script type="module" src="js/app.js"></script>
+</body>
+</html>

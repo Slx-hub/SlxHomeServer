@@ -1,37 +1,46 @@
 # Wildcard certificate covers *.slakxs.de and slakxs.de
 # All blocks share the same cert
 
-# Main site - served from page.slakxs.de subdomain
-page.slakxs.de {
-    tls /etc/caddy/certs/certbot/fullchain1.pem /etc/caddy/certs/certbot/privkey1.pem
-    
-    # Route all requests to webpage service
-    reverse_proxy webpage:50000
-}
-
-# Legacy domain - keep slakxs.de for backward compatibility
 slakxs.de {
     tls /etc/caddy/certs/certbot/fullchain1.pem /etc/caddy/certs/certbot/privkey1.pem
 
-    # Redirect root to main site
-    redir / https://page.slakxs.de 301
+    # Root redirect
+    redir / /page 301
+
+    ######################## Public pages ########################
+    handle /page* {
+        uri strip_prefix /page
+        reverse_proxy mainpage:50000
+    }
 
     # Authentication endpoint - always accessible
     handle /cookie* {
         reverse_proxy auth:49999
     }
 
-    # Secret page - requires authentication or localhost access
-    handle /secret* {
-        @hasAuth {
-            header Cookie *auth_session*
-        }
-        handle @hasAuth {
-            uri strip_prefix /secret
-            reverse_proxy secret-page:50001
-        }
+    ######################## Private pages ########################
+    # Everything under /secret requires authentication
+    @hasAuth {
+        header Cookie *auth_session*
+    }
 
-        # No auth and not local - hide the page
+    # /secret/page - secret page
+    handle /secret/page* {
+        handle @hasAuth {
+            uri strip_prefix /secret/page
+            reverse_proxy secret-page:50002
+        }
+        handle {
+            error 404
+        }
+    }
+
+    # /secret/containers - container manager
+    handle /secret/containers* {
+        handle @hasAuth {
+            uri strip_prefix /secret/containers
+            reverse_proxy container-manager:50001
+        }
         handle {
             error 404
         }
@@ -43,8 +52,8 @@ slakxs.de {
     }
 }
 
-# Redirect www.slakxs.de to page.slakxs.de
+# Redirect www.slakxs.de to slakxs.de
 www.slakxs.de {
     tls /etc/caddy/certs/certbot/fullchain1.pem /etc/caddy/certs/certbot/privkey1.pem
-    redir https://page.slakxs.de{uri} 301
+    redir https://slakxs.de{uri} 301
 }
