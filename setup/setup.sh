@@ -15,6 +15,7 @@
 #   --fail2ban         Enable fail2ban
 #   --updates          Enable automatic security updates
 #   --aliases          Deploy shell aliases
+#   --backup           Install backup service and timer
 #   --help             Show this help message
 
 set -euo pipefail
@@ -26,6 +27,7 @@ CONFIGURE_FIREWALL=false
 ENABLE_FAIL2BAN=false
 ENABLE_UPDATES=false
 DEPLOY_ALIASES=false
+INSTALL_BACKUP=false
 
 show_help() {
     grep "^# " "$0" | grep -E "^\# (Usage|Options|  --)" | sed 's/^# //'
@@ -39,6 +41,7 @@ if [ $# -eq 0 ]; then
     ENABLE_FAIL2BAN=true
     ENABLE_UPDATES=true
     DEPLOY_ALIASES=true
+    INSTALL_BACKUP=true
 else
     # Parse provided arguments
     for arg in "$@"; do
@@ -50,6 +53,7 @@ else
                 ENABLE_FAIL2BAN=true
                 ENABLE_UPDATES=true
                 DEPLOY_ALIASES=true
+                INSTALL_BACKUP=true
                 ;;
             --packages)
                 INSTALL_PACKAGES=true
@@ -68,6 +72,9 @@ else
                 ;;
             --aliases)
                 DEPLOY_ALIASES=true
+                ;;
+            --backup)
+                INSTALL_BACKUP=true
                 ;;
             --help)
                 show_help
@@ -194,6 +201,21 @@ if [ "$DEPLOY_ALIASES" = true ]; then
     fi
 else
     echo "~~ Skipping alias deployment (--aliases not specified)"
+fi
+
+# ── Backup service ──────────────────────────────────────────────────────────
+# Builds the Docker image and installs the systemd service + timer.
+# Requires backup.env to exist with BACKUP_DEVICE set (prompted if absent).
+if [ "$INSTALL_BACKUP" = true ]; then
+    BACKUP_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)/dev/backup"
+    if [ ! -d "$BACKUP_DIR" ]; then
+        echo "ERROR: $BACKUP_DIR not found — is this the full repo?" >&2
+        exit 1
+    fi
+    echo "==> Installing backup service..."
+    sudo bash "${BACKUP_DIR}/install.sh"
+else
+    echo "~~ Skipping backup installation (--backup not specified)"
 fi
 
 echo ""

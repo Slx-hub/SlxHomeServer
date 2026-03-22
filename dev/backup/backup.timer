@@ -1,0 +1,13 @@
+[Unit]
+Description=Nightly Backup Timer — daily rsync at 04:00, tar snapshots on Tuesdays
+
+[Timer]
+# Fire every day at 04:00
+OnCalendar=*-*-* 04:00:00
+AccuracySec=1min
+# If the machine was off at 04:00, run once immediately on next boot
+Persistent=true
+Unit=backup.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,15 @@
+[Unit]
+Description=Nightly Data Backup
+# Docker must be running and the network available before we start
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=@@REPO_PATH@@/dev/backup/run-backup.sh
+# Capture all output to the journal (also visible via: journalctl -u backup.service)
+StandardOutput=journal
+StandardError=journal
+# Allow up to 2 hours for the backup to complete
+TimeoutStartSec=7200
