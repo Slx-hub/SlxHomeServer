@@ -2,9 +2,9 @@ services:
   porkbun-ddns:
     build: .
     restart: unless-stopped
+    env_file:
+      - ../../.env
     environment:
-      PORKBUN_API_KEY: ${PORKBUN_API_KEY}
-      PORKBUN_API_SECRET: ${PORKBUN_API_SECRET}
       PORKBUN_CONFIG: config.yaml
     volumes:
       - ./config.yaml:/app/config.yaml:ro

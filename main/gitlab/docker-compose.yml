@@ -1,3 +1,7 @@
+# NOTE: This compose file uses ${GITLAB_DOMAIN} and ${GITLAB_ROOT_PASSWORD} for
+# compose-level interpolation (hostname, omnibus config). Run with:
+#   docker compose --env-file ../../.env up -d
+
 services:
   # ── Caddy (reverse proxy + automatic HTTPS) ───────────────────────────
   # Handles TLS termination for all services.

@@ -11,15 +11,15 @@ log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
 }
 
-# Load machine-specific config (BACKUP_DEVICE)
-ENV_FILE="$SCRIPT_DIR/backup.env"
-if [[ ! -f "$ENV_FILE" ]]; then
-    log "ERROR: $ENV_FILE not found. Copy backup.env.example, rename it to backup.env, and set BACKUP_DEVICE."
+# Load machine-specific config (BACKUP_DEVICE) from the central repo .env
+ROOT_ENV="$(cd "$SCRIPT_DIR/../.." && pwd)/.env"
+if [[ ! -f "$ROOT_ENV" ]]; then
+    log "ERROR: $ROOT_ENV not found. Create it from .env.example in the repo root."
     exit 1
 fi
 # shellcheck source=/dev/null
-source "$ENV_FILE"
-: "${BACKUP_DEVICE:?backup.env must define BACKUP_DEVICE}"
+source "$ROOT_ENV"
+: "${BACKUP_DEVICE:?Root .env must define BACKUP_DEVICE}"
 
 log "=== Backup runner started ==="
 

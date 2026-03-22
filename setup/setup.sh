@@ -90,7 +90,22 @@ else
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_ENV="${SCRIPT_DIR}/../.env"
 PKGLIST="${SCRIPT_DIR}/pkglist.txt"
+
+# ── Environment file ─────────────────────────────────────────────────────────
+# All secrets and machine-specific values live in the repo root .env.
+# Warn early if it's missing or unconfigured; individual sections will
+# re-check the values they need.
+if [ ! -f "$ROOT_ENV" ]; then
+    echo "WARNING: ${ROOT_ENV} not found."
+    echo "  Copy .env.example to .env in the repo root and fill in your values."
+    echo ""
+else
+    # shellcheck source=/dev/null
+    source "$ROOT_ENV"
+    echo "==> Loaded environment from ${ROOT_ENV}"
+fi
 
 if [ ! -f "${PKGLIST}" ]; then
     echo "ERROR: ${PKGLIST} not found." >&2
@@ -205,15 +220,21 @@ fi
 
 # ── Backup service ──────────────────────────────────────────────────────────
 # Builds the Docker image and installs the systemd service + timer.
-# Requires backup.env to exist with BACKUP_DEVICE set (prompted if absent).
+# Requires BACKUP_DEVICE to be set in the repo root .env.
 if [ "$INSTALL_BACKUP" = true ]; then
     BACKUP_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)/dev/backup"
     if [ ! -d "$BACKUP_DIR" ]; then
         echo "ERROR: $BACKUP_DIR not found — is this the full repo?" >&2
         exit 1
     fi
-    echo "==> Installing backup service..."
-    sudo bash "${BACKUP_DIR}/install.sh"
+    if [ -z "${BACKUP_DEVICE:-}" ] || echo "${BACKUP_DEVICE:-}" | grep -q 'YOUR-UUID-HERE'; then
+        echo "WARNING: BACKUP_DEVICE is not configured in ${ROOT_ENV}"
+        echo "  Find your drive's UUID with: blkid /dev/sdX"
+        echo "  Set BACKUP_DEVICE in ${ROOT_ENV}, then re-run: sudo ./setup.sh --backup"
+    else
+        echo "==> Installing backup service..."
+        sudo bash "${BACKUP_DIR}/install.sh"
+    fi
 else
     echo "~~ Skipping backup installation (--backup not specified)"
 fi

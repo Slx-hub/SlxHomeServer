@@ -10,10 +10,8 @@ services:
       - ./post-renewal.sh:/etc/letsencrypt/renewal-hooks/post/copy-certs.sh:ro
       # Local bind mount to reverse-proxy certs directory
       - /home/slx/SlxHomeServer/main/reverse-proxy/certs/certbot:/mnt/certs
-    environment:
-      # Porkbun API credentials (from .env)
-      PORKBUN_API_KEY: ${PORKBUN_API_KEY}
-      PORKBUN_API_SECRET: ${PORKBUN_API_SECRET}
+    env_file:
+      - ../../.env
     networks:
       - main-network
     # Run certificate renewal and check every 12 hours
