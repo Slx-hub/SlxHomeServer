@@ -81,7 +81,7 @@ done < /etc/backup/backup-sources.conf
 # Failures are logged as warnings and do NOT affect the exit code; backup
 # and reboot proceed regardless.
 # ---------------------------------------------------------------------------
-if [[ "$RUN_WEEKLY" == true ]]; then
+if false; then  # DISABLED — re-enable by changing 'false' back to '"$RUN_WEEKLY" == true'd
     log "--- Google Photos sync (rclone) ---"
     RCLONE_CONF="/etc/rclone/rclone.conf"
     PHOTOS_DEST="/data/media/photos"
@@ -92,11 +92,11 @@ if [[ "$RUN_WEEKLY" == true ]]; then
         log "  using the 'Google Photos' backend, then place the config at $RCLONE_CONF on the host"
     else
         mkdir -p "$PHOTOS_DEST"
-        log "rclone copy gphotos: -> $PHOTOS_DEST"
+        log "rclone copy gphotos:media/all -> $PHOTOS_DEST"
         rclone copy \
             --config "$RCLONE_CONF" \
             --log-level INFO \
-            gphotos: "$PHOTOS_DEST" \
+            gphotos:media/all "$PHOTOS_DEST" \
             >> "$LOGFILE" 2>&1
         RC=$?
         if [[ $RC -eq 0 ]]; then

@@ -40,14 +40,15 @@ echo "  1. Press 'n' for New remote"
 echo "  2. Name it exactly:  gphotos"
 echo "  3. Type 'google photos' or choose its number from the list"
 echo "  4. Client ID and Secret: leave BLANK (press Enter twice)"
-echo "  5. Read only access: type 'true' (recommended — rclone only downloads)"
+echo "  5. Read only access: type 'false' — Google restricted the readonly scope"
+echo "     in 2022; it no longer allows listing all media. rclone itself won't"
+echo "     upload or delete anything, so 'false' here is safe."
 echo "  6. Edit advanced config? → No"
-echo "  7. Use auto config? → No  ← IMPORTANT for headless servers"
+echo "  7. Use auto config? → answer 'No'"
 echo ""
-echo "  After answering 'No' to auto config, rclone will print a URL."
-echo "  Open that URL in a browser on ANY device (phone, laptop, etc.),"
-echo "  log in with your Google account, and click Allow."
-echo "  Paste the token code back into this terminal."
+echo "  rclone will print a URL."
+echo "  Open it on ANY device with a browser, authorize with Google,"
+echo "  and paste the resulting token code back into this terminal."
 echo ""
 echo "  8. Confirm the remote looks correct → Yes"
 echo "  9. Quit config (press 'q')"
@@ -55,7 +56,8 @@ echo ""
 read -rp "Press Enter to launch rclone config..."
 echo ""
 
-# Run rclone config inside the backup container, mounting the config dir
+# Run rclone config inside the backup container.
+# Use manual URL auth (answer 'No' to auto config) — no port mapping needed.
 docker run --rm -it \
     -v "$CONFIG_DIR:$CONFIG_DIR" \
     --entrypoint rclone \
