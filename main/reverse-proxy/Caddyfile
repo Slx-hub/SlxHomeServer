@@ -66,6 +66,11 @@ git.slakxs.de {
         header Cookie *auth_session*
     }
 
+    # Auth endpoint - always accessible; sets a host-only cookie for git.slakxs.de
+    handle /cookie* {
+        reverse_proxy auth:49999
+    }
+
     handle @hasAuth {
         reverse_proxy gitea:3000
     }

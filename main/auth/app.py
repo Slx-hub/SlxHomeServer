@@ -4,10 +4,11 @@ Simple authentication service for session-based access control.
 Validates a token and returns a long-lived session cookie.
 """
 
+import json
 import os
 import secrets
-from datetime import datetime, timedelta
-from flask import Flask, request, jsonify, make_response
+from datetime import timedelta
+from flask import Flask, request, make_response
 
 app = Flask(__name__)
 
@@ -29,20 +30,25 @@ def login():
     Handle login requests. Both GET (for form display) and POST (for submission).
     """
     if request.method == "GET":
-        # Return a simple HTML form
-        html = """
+        # Sanitise return URL — only allow relative paths
+        return_url = request.args.get("return", "/")
+        if not return_url.startswith("/"):
+            return_url = "/"
+        return_url_attr = return_url.replace('"', '&quot;')
+        html = f"""
         <!DOCTYPE html>
         <html>
         <head>
             <title>Authentication</title>
             <style>
-                body { font-family: sans-serif; margin: 50px; }
-                input { padding: 8px; font-size: 16px; }
-                button { padding: 8px 16px; font-size: 16px; }
+                body {{ font-family: sans-serif; margin: 50px; }}
+                input {{ padding: 8px; font-size: 16px; }}
+                button {{ padding: 8px 16px; font-size: 16px; }}
             </style>
         </head>
         <body>
             <form method="post">
+                <input type="hidden" name="return" value="{return_url_attr}">
                 <label for="token">Access Token:</label><br><br>
                 <input type="password" id="token" name="token" size="50" required autofocus><br><br>
                 <button type="submit">Authenticate</button>
@@ -79,29 +85,35 @@ def login():
         """, 401, {"Content-Type": "text/html"}
 
     # Token is valid - create session cookie and redirect
-    redirect_url = request.referrer or "/"
+    # Use the ?return= field from the form, fall back to referrer, then root.
+    redirect_url = request.form.get("return", "").strip() or request.referrer or "/"
+    # Only allow relative paths to prevent open-redirect abuse.
+    if not redirect_url.startswith("/"):
+        redirect_url = "/"
+    redirect_js = json.dumps(redirect_url)  # safely quoted for JS
     response = make_response(f"""
         <!DOCTYPE html>
         <html>
         <head>
             <title>Authenticating...</title>
-            <script>window.location.href="{redirect_url}";</script>
+            <script>window.location.href={redirect_js};</script>
         </head>
         <body>
-            <p>Authenticating... <a href="{redirect_url}">Click here if not redirected</a></p>
+            <p>Authenticating... <a href={redirect_js}>Click here if not redirected</a></p>
         </body>
         </html>
     """, 200)
 
-    # Set httpOnly, Secure, SameSite cookies - domain covers all subdomains
+    # Host-only cookie (no domain= attribute): the browser will only send this
+    # cookie back to the exact host it was set on.  Each protected subdomain
+    # exposes /cookie and gets its own scoped session this way.
     response.set_cookie(
         SESSION_COOKIE_NAME,
         value=SESSION_SECRET,
         max_age=int(SESSION_COOKIE_DURATION.total_seconds()),
         httponly=True,
-        secure=True,  # Only sent over HTTPS
+        secure=True,
         samesite="Lax",
-        domain=".slakxs.de",  # Send to all subdomains
         path="/",
     )
 
