@@ -201,6 +201,16 @@ async def project_restart(project_name: str):
     return {"output": output}
 
 
+@app.post("/api/projects/{project_name:path}/rebuild")
+async def project_rebuild(project_name: str):
+    """Stop, rebuild images (no cache), and restart a compose project."""
+    cf = _find_compose(project_name)
+    await _compose_command(cf["path"], ["down"])
+    await _compose_command(cf["path"], ["build", "--no-cache"])
+    output = await _compose_command(cf["path"], ["up", "-d"])
+    return {"output": output}
+
+
 @app.get("/api/projects/{project_name:path}/logs")
 async def project_logs(
     project_name: str,

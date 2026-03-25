@@ -37,6 +37,10 @@ export class Api {
         return this._request(`api/projects/${this._encodeName(name)}/logs?lines=${lines}`);
     }
 
+    projectRebuild(name) {
+        return this._request(`api/projects/${this._encodeName(name)}/rebuild`, { method: 'POST' });
+    }
+
     serviceStart(containerId) {
         return this._request(`api/services/${encodeURIComponent(containerId)}/start`, { method: 'POST' });
     }

@@ -47,6 +47,7 @@ export class ProjectCard {
             actions.appendChild(this._actionBtn('↻ Restart', '', () => this._exec(() => this.api.projectRestart(p.name), 'Restarting…')));
             actions.appendChild(this._actionBtn('📋 Logs', '', () => this.logModal.openProject(p.name)));
         }
+        actions.appendChild(this._actionBtn('⟳ Rebuild', 'btn-muted', () => this._exec(() => this.api.projectRebuild(p.name), 'Rebuilding… (this may take a while)')));
 
         return actions;
     }

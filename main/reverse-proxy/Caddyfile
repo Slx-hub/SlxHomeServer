@@ -52,6 +52,11 @@ slakxs.de {
     }
 }
 
+ntfy.slakxs.de {
+    tls /etc/caddy/certs/certbot/fullchain1.pem /etc/caddy/certs/certbot/privkey1.pem
+    reverse_proxy ntfy:80
+}
+
 # Redirect www.slakxs.de to slakxs.de
 www.slakxs.de {
     tls /etc/caddy/certs/certbot/fullchain1.pem /etc/caddy/certs/certbot/privkey1.pem

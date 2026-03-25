@@ -23,6 +23,22 @@ log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
 }
 
+# ntfy notification config
+NTFY_URL="http://localhost:42000"
+NTFY_TOPIC="slx-homeserver-alerts"
+
+ntfy_push() {
+    local title="$1" message="$2" priority="${3:-default}" tags="${4:-}"
+    curl -s --max-time 5 \
+        -u "$NTFY_USER:$NTFY_PASSWORD" \
+        -H "Title: $title" \
+        -H "Priority: $priority" \
+        ${tags:+-H "Tags: $tags"} \
+        -d "$message" \
+        "$NTFY_URL/$NTFY_TOPIC" > /dev/null 2>&1 \
+        || log "WARNING: ntfy notification failed (server unreachable?)"
+}
+
 # Load machine-specific config (BACKUP_DEVICE) from the central repo .env
 ROOT_ENV="$(cd "$SCRIPT_DIR/../.." && pwd)/.env"
 if [[ ! -f "$ROOT_ENV" ]]; then
@@ -68,8 +84,13 @@ umount /backup || log "WARNING: Failed to unmount /backup"
 
 if [[ $BACKUP_EXIT -ne 0 ]]; then
     log "ERROR: Backup failed — skipping reboot"
+    ntfy_push "Backup Failed" "Backup on $(hostname) finished with errors (exit $BACKUP_EXIT). Check logs in /backup/logs." "high" "warning"
     exit "$BACKUP_EXIT"
 fi
+
+# ---- TEST BLOCK: remove once notifications are confirmed working ----
+ntfy_push "Backup OK" "Backup on $(hostname) completed successfully." "default" "white_check_mark"
+# ---- END TEST BLOCK ----
 
 log "Backup successful — initiating reboot"
 # systemctl reboot is non-blocking; the script exits 0 cleanly before the reboot kicks in

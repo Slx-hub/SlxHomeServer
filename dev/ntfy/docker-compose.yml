@@ -1,0 +1,33 @@
+services:
+  ntfy:
+    image: binwiederhier/ntfy
+    container_name: ntfy
+    command: serve
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+    environment:
+      NTFY_BASE_URL: https://ntfy.slakxs.de
+      NTFY_CACHE_FILE: /var/lib/ntfy/cache.db
+      NTFY_AUTH_DEFAULT_ACCESS: deny-all
+      NTFY_ENABLE_LOGIN: true
+      # NTFY_AUTH_USERS comes through env_file (no variable substitution, $ preserved literally)
+      NTFY_BEHIND_PROXY: true
+      NTFY_WEB_PUSH_PUBLIC_KEY: "BMG9qjHSyC35rbGtojw3g7T63MnrWaHTPxLb8jePe1vFhW2dEyYmKAuSc9RHFyR7lZmpcbbaou-87Hl_qndDJM4"
+      NTFY_WEB_PUSH_PRIVATE_KEY: "3VmOk7zGBIEGeYQ8kw0oPgyBH6RPYLEouSlXCD5ovio"
+      NTFY_WEB_PUSH_FILE: /var/lib/ntfy/webpush.db
+      NTFY_WEB_PUSH_EMAIL_ADDRESS: "schneja@tuta.io"
+    volumes:
+      - ntfy-data:/var/lib/ntfy
+    ports:
+      - "42000:80"  # Also reachable locally for scripts (http://localhost:42000)
+    networks:
+      - main-network
+
+volumes:
+  ntfy-data:
+
+networks:
+  main-network:
+    external: true
+    name: main-network
