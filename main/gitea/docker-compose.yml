@@ -1,0 +1,28 @@
+services:
+  gitea:
+    image: gitea/gitea:latest
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+    environment:
+      - GITEA__server__DOMAIN=git.slakxs.de
+      - GITEA__server__ROOT_URL=https://git.slakxs.de
+      - GITEA__server__SSH_DOMAIN=git.slakxs.de
+      - GITEA__server__SSH_PORT=2222
+      - GITEA__server__SSH_LISTEN_PORT=22
+    ports:
+      # Git over SSH — host 2222 → container 22.
+      # Host port 22 is kept for server administration.
+      - "2222:22"
+    volumes:
+      - /data/gitea/data:/data
+      - /data/gitea/config:/etc/gitea
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    networks:
+      - main-network
+
+networks:
+  main-network:
+    external: true
+    name: main-network

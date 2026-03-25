@@ -35,17 +35,17 @@ docker run --rm \
   -v certbot_data:/etc/letsencrypt \
   certbot-porkbun certonly \
     --authenticator dns-porkbun \
-    --dns-porkbun-key $(grep PORKBUN_API_KEY .env | cut -d= -f2) \
-    --dns-porkbun-secret $(grep PORKBUN_API_SECRET .env | cut -d= -f2) \
-    -d "*.slakxs.de" \
+    --dns-porkbun-key $(grep PORKBUN_API_KEY ../../.env | cut -d= -f2) \
+    --dns-porkbun-secret $(grep PORKBUN_API_SECRET ../../.env | cut -d= -f2) \
+    -d "git.slakxs.de" \
     -d slakxs.de \
     --agree-tos \
-    --email $(grep CERTBOT_EMAIL .env | cut -d= -f2) \
+    --email $(grep CERTBOT_EMAIL ../../.env | cut -d= -f2) \
     --non-interactive
 ```
 
 This generates a wildcard certificate covering:
-- `*.slakxs.de` – All subdomains
+- `git.slakxs.de` – All subdomains
 - `slakxs.de` – Base domain
 
 ### 4. Copy Initial Certs to Reverse Proxy

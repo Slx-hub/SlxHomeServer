@@ -147,7 +147,7 @@ fi
 
 # ── Firewall (ufw) ──────────────────────────────────────────────────────
 # Default: deny all inbound, allow all outbound.
-# Open only SSH (admin), HTTP/HTTPS (Caddy), and port 2222 (GitLab SSH).
+# Open only SSH (admin), HTTP/HTTPS (Caddy), and port 2222 (Gitea SSH).
 if [ "$CONFIGURE_FIREWALL" = true ]; then
     echo "==> Configuring firewall..."
     sudo ufw --force reset
@@ -157,7 +157,7 @@ if [ "$CONFIGURE_FIREWALL" = true ]; then
     sudo ufw allow 22/tcp     comment 'SSH (admin)'
     sudo ufw allow 80/tcp     comment 'HTTP  – Caddy'
     sudo ufw allow 443/tcp    comment 'HTTPS – Caddy'
-    sudo ufw allow 2222/tcp   comment 'Git SSH – GitLab'
+    sudo ufw allow 2222/tcp   comment 'Git SSH – Gitea'
     sudo ufw --force enable
     echo "==> Firewall active. Status:"
     sudo ufw status verbose

@@ -57,3 +57,20 @@ www.slakxs.de {
     tls /etc/caddy/certs/certbot/fullchain1.pem /etc/caddy/certs/certbot/privkey1.pem
     redir https://slakxs.de{uri} 301
 }
+
+# Gitea — private git hosting
+git.slakxs.de {
+    tls /etc/caddy/certs/certbot/fullchain1.pem /etc/caddy/certs/certbot/privkey1.pem
+
+    @hasAuth {
+        header Cookie *auth_session*
+    }
+
+    handle @hasAuth {
+        reverse_proxy gitea:3000
+    }
+
+    handle {
+        error 404
+    }
+}

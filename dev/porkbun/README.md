@@ -35,7 +35,7 @@ domain:
   records:
     - name: "@"      # Root domain
     - name: "www"    # www.slakxs.de
-    - name: "gitlab" # gitlab.slakxs.de
+    - name: "git"    # git.slakxs.de
 
 ip:
   static: "91.13.180.167"  # Your public IP

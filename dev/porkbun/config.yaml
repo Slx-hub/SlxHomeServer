@@ -13,7 +13,7 @@ domain:
   records:
     - name: "@"      # Root domain
     - name: "www"    # www.slakxs.de
-    - name: "gitlab" # gitlab.slakxs.de
+    - name: "git"    # git.slakxs.de
 
 # Public IP settings
 ip:

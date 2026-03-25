@@ -99,7 +99,54 @@ ssh slx@<server-ip>
 docker run hello-world   # verify Docker works
 ```
 
-## Step 6 — You're Done
+## Step 6 — Deploy Services
+
+With Docker ready, deploy the services from `main/`. Start with the reverse proxy and auth, then bring up everything else.
+
+### 6a. Configure `.env`
+
+```bash
+cd /home/slx/SlxHomeServer
+cp .env.example .env
+nano .env   # fill in AUTH_TOKEN, GITEA_DOMAIN, PORKBUN keys, BACKUP_DEVICE, etc.
+```
+
+### 6b. Start the Reverse Proxy & Auth
+
+```bash
+cd main/reverse-proxy
+docker compose up -d
+```
+
+### 6c. Start Services
+
+Each service is independent — start whichever you need:
+
+```bash
+# Landing page and secret page
+cd ../page && docker compose up -d
+cd ../secret-page && docker compose up -d
+
+# Container manager
+cd ../containers && docker compose up -d
+
+# Gitea (first time — creates /data/gitea directories)
+cd ../gitea
+chmod +x setup-gitea.sh
+./setup-gitea.sh
+
+# Jellyfin
+cd ../jellyfin && docker compose up -d
+```
+
+### 6d. Gitea First-Run
+
+1. Authenticate at `https://slakxs.de/cookie` with your `AUTH_TOKEN`.
+2. Visit `https://git.slakxs.de` — Gitea shows its initial configuration page.
+3. Set your admin account and finish setup.
+4. SSH clone URLs use port 2222: `ssh://git@git.slakxs.de:2222/user/repo.git`
+
+## Step 7 — You're Done
 
 Your home server is now up and running with:
 
@@ -108,9 +155,11 @@ Your home server is now up and running with:
 - `ufw` firewall (only ports 22, 80, 443, 2222 open)
 - Automatic security updates via `unattended-upgrades`
 - Docker & Docker Compose ready
-- The `SlxHomeServer` repo at `/home/slx/SlxHomeServer` for any further configuration
-
-Continue to the `main/` folder for service definitions and configurations.
+- Caddy reverse proxy with TLS for `slakxs.de` and `git.slakxs.de`
+- Session-based auth protecting private pages and Gitea
+- Gitea for self-hosted Git
+- Jellyfin for media (LAN access)
+- Automated backups for `/data/` directories
 
 ---
 
