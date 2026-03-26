@@ -2,6 +2,12 @@ services:
   mainpage:
     image: nginx:alpine
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:50000/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     ports:
       - "50000:50000"
     volumes:

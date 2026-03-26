@@ -2,6 +2,12 @@ services:
   porkbun-ddns:
     build: .
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,sys; sys.exit(0 if os.path.isfile('/app/config.yaml') and os.path.getsize('/app/config.yaml') > 0 else 1)"]
+      interval: 5m
+      timeout: 10s
+      retries: 3
+      start_period: 20s
     env_file:
       - ../../.env
     environment:

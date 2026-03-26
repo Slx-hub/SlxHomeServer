@@ -121,12 +121,13 @@ SlxHomeServer/
    services).
 2. Join `main-network` as external.
 3. Add a `ports:` entry for direct LAN access.
-4. Register in `platform/reverse-proxy/Caddyfile` — apply `@hasAuth` if the service exposes
+4. Add a `healthcheck:` in `docker-compose.yml` so service state surfaces in tooling.
+5. Register in `platform/reverse-proxy/Caddyfile` — apply `@hasAuth` if the service exposes
    anything sensitive.
-5. Add any new env vars to `/.env.example` with explanatory comments.
-6. If the service writes persistent data, mount it under `/data/<service>/` and add the path
+6. Add any new env vars to `/.env.example` with explanatory comments.
+7. If the service writes persistent data, mount it under `/data/<service>/` and add the path
    to both conf files in `infra/backup/`.
-7. If host packages are needed, add them to `setup/setup.sh` and `setup/pkglist.txt`.
+8. If host packages are needed, add them to `setup/setup.sh` and `setup/pkglist.txt`.
 
 ---
 

@@ -41,10 +41,11 @@ applyTo: "**"
 
 1. Create `apps/<name>/docker-compose.yml` (or `infra/<name>/` for background services)
 2. Join `main-network` as external + add `ports:` entry
-3. Register route in `platform/reverse-proxy/Caddyfile` (add `@hasAuth` if sensitive)
-4. Add new env vars to `/.env.example`
-5. Add data paths to both backup conf files
-6. Add host packages to `setup/setup.sh` and `setup/pkglist.txt`
+3. Add a `healthcheck:` entry in `docker-compose.yml`
+4. Register route in `platform/reverse-proxy/Caddyfile` (add `@hasAuth` if sensitive)
+5. Add new env vars to `/.env.example`
+6. Add data paths to both backup conf files
+7. Add host packages to `setup/setup.sh` and `setup/pkglist.txt`
 
 ## Folder Structure
 

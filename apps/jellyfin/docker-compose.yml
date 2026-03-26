@@ -3,6 +3,12 @@ services:
     image: jellyfin/jellyfin:latest
     container_name: jellyfin
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8096/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
 
     # Host networking is required for:
     #   - DLNA/SSDP auto-discovery (port 1900 UDP) → Smart TV finds it automatically

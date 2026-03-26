@@ -134,6 +134,12 @@ def verify():
         return "", 401
 
 
+@app.route("/healthz", methods=["GET"])
+def healthz():
+    """Container health endpoint for Docker HEALTHCHECK."""
+    return "ok", 200
+
+
 if __name__ == "__main__":
     # Bind to all interfaces, port 49999
     app.run(host="0.0.0.0", port=49999, debug=False)

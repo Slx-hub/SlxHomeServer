@@ -177,6 +177,12 @@ def list_projects():
     return {"projects": projects}
 
 
+@app.get("/api/healthz")
+def api_healthz():
+    """Lightweight liveness endpoint for Docker HEALTHCHECK."""
+    return {"status": "ok"}
+
+
 @app.post("/api/projects/{project_name:path}/up")
 async def project_up(project_name: str):
     """Start a compose project."""
