@@ -3,8 +3,8 @@ services:
     image: henrygd/beszel:latest
     container_name: beszel
     restart: unless-stopped
-    expose:
-      - "8090"
+    ports:
+      - "8090:8090"
     volumes:
       - beszel_data:/beszel_data
     # Lets the hub reach the agent on the host via host.docker.internal:45876
@@ -22,6 +22,8 @@ services:
     network_mode: host
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    env_file:
+      - ../../../.env
     environment:
       PORT: "45876"
       KEY: "${BESZEL_AGENT_KEY}"

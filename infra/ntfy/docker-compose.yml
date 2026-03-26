@@ -13,10 +13,10 @@ services:
       NTFY_ENABLE_LOGIN: true
       # NTFY_AUTH_USERS comes through env_file (no variable substitution, $ preserved literally)
       NTFY_BEHIND_PROXY: true
-      NTFY_WEB_PUSH_PUBLIC_KEY: "BMG9qjHSyC35rbGtojw3g7T63MnrWaHTPxLb8jePe1vFhW2dEyYmKAuSc9RHFyR7lZmpcbbaou-87Hl_qndDJM4"
-      NTFY_WEB_PUSH_PRIVATE_KEY: "3VmOk7zGBIEGeYQ8kw0oPgyBH6RPYLEouSlXCD5ovio"
+      NTFY_WEB_PUSH_PUBLIC_KEY: "${NTFY_WEB_PUSH_PUBLIC_KEY}"
+      NTFY_WEB_PUSH_PRIVATE_KEY: "${NTFY_WEB_PUSH_PRIVATE_KEY}"
       NTFY_WEB_PUSH_FILE: /var/lib/ntfy/webpush.db
-      NTFY_WEB_PUSH_EMAIL_ADDRESS: "schneja@tuta.io"
+      NTFY_WEB_PUSH_EMAIL_ADDRESS: "${NTFY_WEB_PUSH_EMAIL_ADDRESS}"
     volumes:
       - ntfy-data:/var/lib/ntfy
     ports:
