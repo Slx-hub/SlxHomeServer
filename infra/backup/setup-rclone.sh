@@ -2,7 +2,7 @@
 # Sets up rclone with a Google Photos remote on a headless server.
 # The OAuth flow is handled via a URL you open on any device with a browser.
 #
-# Usage: sudo bash dev/backup/setup-rclone.sh
+# Usage: sudo bash infra/backup/setup-rclone.sh
 #
 # What this script does:
 #   1. Runs 'rclone config' inside the backup Docker image (no host install needed)
@@ -15,14 +15,14 @@ CONFIG_DIR="/etc/rclone"
 CONFIG_FILE="$CONFIG_DIR/rclone.conf"
 
 if [[ "$(id -u)" -ne 0 ]]; then
-    echo "ERROR: Run as root: sudo bash dev/backup/setup-rclone.sh" >&2
+    echo "ERROR: Run as root: sudo bash infra/backup/setup-rclone.sh" >&2
     exit 1
 fi
 
 # Ensure the backup image exists
 if ! docker image inspect slx-backup &>/dev/null; then
     echo "ERROR: Docker image 'slx-backup' not found."
-    echo "  Build it first: sudo bash dev/backup/install.sh"
+    echo "  Build it first: sudo bash infra/backup/install.sh"
     exit 1
 fi
 
@@ -74,7 +74,7 @@ if [[ -f "$CONFIG_FILE" ]]; then
         echo "  sudo docker run --rm -v $CONFIG_DIR:$CONFIG_DIR --entrypoint rclone slx-backup lsd --config $CONFIG_FILE gphotos:"
         echo ""
         echo "The backup service will now sync Google Photos every Tuesday"
-        echo "or whenever you run:  sudo bash dev/backup/run-backup.sh --full"
+        echo "or whenever you run:  sudo bash infra/backup/run-backup.sh --full"
     else
         echo "WARNING: Config file exists but no [gphotos] remote found."
         echo "  Make sure you named the remote exactly 'gphotos' and re-run this script."

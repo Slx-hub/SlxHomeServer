@@ -222,7 +222,7 @@ fi
 # Builds the Docker image and installs the systemd service + timer.
 # Requires BACKUP_DEVICE to be set in the repo root .env.
 if [ "$INSTALL_BACKUP" = true ]; then
-    BACKUP_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)/dev/backup"
+    BACKUP_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)/infra/backup"
     if [ ! -d "$BACKUP_DIR" ]; then
         echo "ERROR: $BACKUP_DIR not found — is this the full repo?" >&2
         exit 1

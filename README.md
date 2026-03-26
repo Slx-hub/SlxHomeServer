@@ -18,18 +18,21 @@ SlxHomeServer/
 │   ├── setup.sh        # Post-SSH package installation & firewall
 │   ├── pkglist.txt     # Packages to install
 │   └── aliases.sh      # Shell aliases deployed to /etc/profile.d/
-├── main/               # Service configurations (Docker Compose)
+├── platform/           # Core services that everything else depends on
 │   ├── reverse-proxy/  # Caddy — TLS termination & routing
-│   ├── auth/           # Session-based auth service (/cookie)
-│   ├── page/           # Public landing page
-│   ├── secret-page/    # Private page (requires auth)
-│   ├── containers/     # Docker container manager UI
+│   └── auth/           # Session-based auth service (/cookie)
+├── apps/               # User-facing applications
+│   ├── pages/          # Lightweight custom-built pages & dashboards
+│   │   ├── homepage/         # Public landing page
+│   │   ├── secret-page/     # Secret page (requires auth)
+│   │   └── container-manager/ # Docker container manager UI
 │   ├── gitea/          # Gitea — self-hosted Git (git.slakxs.de)
 │   └── jellyfin/       # Jellyfin — media server (LAN only)
-├── dev/                # Development / infrastructure tooling
+├── infra/              # Background operational services
 │   ├── backup/         # Automated backup service (rsync + tar)
 │   ├── certbot/        # TLS certificate renewal
-│   └── porkbun/        # Dynamic DNS updater
+│   ├── ddns/           # Dynamic DNS updater (Porkbun)
+│   └── ntfy/           # Push notification server
 └── docs/               # Documentation
     ├── setup-guide.md  # Full setup walkthrough
     └── notes-for-someday.md
@@ -40,19 +43,19 @@ SlxHomeServer/
 1. **Prepare a USB stick** on your Windows PC (`setup/Prepare-FlashDrive.ps1`).
 2. **Boot** the target machine from USB — Debian installs itself with zero user input.
 3. **SSH in** and run `setup/setup.sh` to install Docker, configure firewall, and deploy aliases.
-4. **Deploy services** from `main/` — each has its own `docker-compose.yml`.
+4. **Deploy services** from `platform/`, `apps/`, and `infra/` — each has its own `docker-compose.yml`.
 
 ## Services
 
 | Service | Domain / Access | Auth | Dir |
 |---|---|---|---|
-| **Reverse Proxy** | `slakxs.de` (ports 80/443) | — | `main/reverse-proxy/` |
-| **Auth** | `/cookie` endpoint | — | `main/auth/` |
-| **Landing Page** | `/page` | Public | `main/page/` |
-| **Secret Page** | `/secret/page` | Cookie | `main/secret-page/` |
-| **Container Manager** | `/secret/containers` | Cookie | `main/containers/` |
-| **Gitea** | `git.slakxs.de` | Cookie | `main/gitea/` |
-| **Jellyfin** | `http://<server-ip>:8096` | LAN only | `main/jellyfin/` |
+| **Reverse Proxy** | `slakxs.de` (ports 80/443) | — | `platform/reverse-proxy/` |
+| **Auth** | `/cookie` endpoint | — | `platform/auth/` |
+| **Landing Page** | `/page` | Public | `apps/pages/homepage/` |
+| **Secret Page** | `/secret/page` | Cookie | `apps/pages/secret-page/` |
+| **Container Manager** | `/secret/containers` | Cookie | `apps/pages/container-manager/` |
+| **Gitea** | `git.slakxs.de` | Cookie | `apps/gitea/` |
+| **Jellyfin** | `http://<server-ip>:8096` | LAN only | `apps/jellyfin/` |
 
 ## Configuration
 
@@ -66,10 +69,10 @@ Key variables: `AUTH_TOKEN`, `GITEA_DOMAIN`, `PORKBUN_API_KEY`, `BACKUP_DEVICE`,
 
 ## Backups
 
-The backup system (`dev/backup/`) mirrors and snapshots critical data directories:
+The backup system (`infra/backup/`) mirrors and snapshots critical data directories:
 
 - `/data/jellyfin/config`
 - `/data/gitea/data`, `/data/gitea/config`
 - `/data/media`
 
-See `dev/backup/backup-sources.conf` for the full list.
+See `infra/backup/backup-sources.conf` for the full list.

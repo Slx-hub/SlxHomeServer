@@ -9,7 +9,7 @@ services:
       # Mount renewal hook for syncing certs to reverse-proxy
       - ./post-renewal.sh:/etc/letsencrypt/renewal-hooks/post/copy-certs.sh:ro
       # Local bind mount to reverse-proxy certs directory
-      - /home/slx/SlxHomeServer/main/reverse-proxy/certs/certbot:/mnt/certs
+      - /home/slx/SlxHomeServer/platform/reverse-proxy/certs/certbot:/mnt/certs
     env_file:
       - ../../.env
     networks:

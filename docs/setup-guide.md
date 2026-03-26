@@ -101,7 +101,7 @@ docker run hello-world   # verify Docker works
 
 ## Step 6 — Deploy Services
 
-With Docker ready, deploy the services from `main/`. Start with the reverse proxy and auth, then bring up everything else.
+With Docker ready, deploy the services from `platform/` and `apps/`. Start with the reverse proxy and auth, then bring up everything else.
 
 ### 6a. Configure `.env`
 
@@ -114,7 +114,7 @@ nano .env   # fill in AUTH_TOKEN, GITEA_DOMAIN, PORKBUN keys, BACKUP_DEVICE, etc
 ### 6b. Start the Reverse Proxy & Auth
 
 ```bash
-cd main/reverse-proxy
+cd platform/reverse-proxy
 docker compose up -d
 ```
 
@@ -123,15 +123,15 @@ docker compose up -d
 Each service is independent — start whichever you need:
 
 ```bash
-# Landing page and secret page
-cd ../page && docker compose up -d
-cd ../secret-page && docker compose up -d
+# Landing page and private page
+cd ../../apps/pages/homepage && docker compose up -d
+cd ../private-page && docker compose up -d
 
 # Container manager
-cd ../containers && docker compose up -d
+cd ../container-manager && docker compose up -d
 
 # Gitea (first time — creates /data/gitea directories)
-cd ../gitea
+cd ../../gitea
 chmod +x setup-gitea.sh
 ./setup-gitea.sh
 

@@ -7,7 +7,7 @@ Lightweight self-hosted Git service, replacing GitLab CE.
 ### 2. Run First-Time Setup
 
 ```bash
-cd /home/slx/SlxHomeServer/main/gitea
+cd /home/slx/SlxHomeServer/apps/gitea
 chmod +x setup-gitea.sh
 ./setup-gitea.sh
 ```
@@ -36,7 +36,7 @@ All persistent data lives under `/data/gitea/`:
 | `/data/gitea/data` | Repositories, LFS, avatars, attachments |
 | `/data/gitea/config` | `app.ini` and other configuration |
 
-Both paths are included in `dev/backup/backup-sources.conf` and `dev/backup/snapshot-sources.conf`.
+Both paths should be included in `infra/backup/backup-sources.conf` and `infra/backup/snapshot-sources.conf`.
 
 ## Architecture
 

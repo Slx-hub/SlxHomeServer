@@ -25,7 +25,7 @@ nano .env
 Run this once to generate the initial wildcard certificate:
 
 ```bash
-cd /home/slx/SlxHomeServer/dev/certbot
+cd /home/slx/SlxHomeServer/infra/certbot
 
 # Build the image
 docker build -t certbot-porkbun .
@@ -55,11 +55,11 @@ Copy all cert files flat (no folder structure):
 ```bash
 docker run --rm \
   -v certbot_data:/etc/letsencrypt:ro \
-  -v /home/slx/SlxHomeServer/main/reverse-proxy/certs/certbot:/mnt/certs \
+  -v /home/slx/SlxHomeServer/platform/reverse-proxy/certs/certbot:/mnt/certs \
   alpine sh -c "find /etc/letsencrypt -type f ! -name 'README' -exec cp {} /mnt/certs/ \; && chmod 644 /mnt/certs/* && chmod 600 /mnt/certs/privkey*.pem 2>/dev/null"
 ```
 
-All cert files are copied flat to `/home/slx/SlxHomeServer/main/reverse-proxy/certs/certbot/`:
+All cert files are copied flat to `/home/slx/SlxHomeServer/platform/reverse-proxy/certs/certbot/`:
 - `fullchain1.pem` (or `fullchain2.pem` on renewal) – Full chain (used by Caddy)
 - `privkey1.pem` (or `privkey2.pem` on renewal) – Private key (used by Caddy)
 - Plus all other cert files and configs
@@ -84,7 +84,7 @@ volumes:
   - ./certs/certbot:/etc/caddy/certs:ro
 ```
 
-Certs are stored locally at: `/home/slx/SlxHomeServer/main/reverse-proxy/certs/certbot/`
+Certs are stored locally at: `/home/slx/SlxHomeServer/platform/reverse-proxy/certs/certbot/`
 
 ### 6. Start Renewal Service
 
@@ -101,7 +101,7 @@ docker-compose logs -f certbot
 The container runs Certbot's renewal check every 12 hours. When a certificate needs renewal (usually 30 days before expiry):
 
 1. Certbot renews the certificate
-2. The post-renewal hook copies all cert files flat to `/home/slx/SlxHomeServer/main/reverse-proxy/certs/certbot/`
+2. The post-renewal hook copies all cert files flat to `/home/slx/SlxHomeServer/platform/reverse-proxy/certs/certbot/`
 3. Caddy reads from the flat cert files
 
 ## Manual Renewal
@@ -141,7 +141,7 @@ docker-compose logs certbot | grep -i "renewing\|success\|error"
 
 **Local cert directory (flat structure):**
 ```
-/home/slx/SlxHomeServer/main/reverse-proxy/certs/certbot/
+/home/slx/SlxHomeServer/platform/reverse-proxy/certs/certbot/
 ├── fullchain1.pem  ← Caddy reads from here (full chain)
 ├── privkey1.pem    ← Caddy reads from here (private key)
 ├── cert1.pem       (leaf certificate)

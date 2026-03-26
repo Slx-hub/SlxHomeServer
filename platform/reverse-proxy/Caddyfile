@@ -19,15 +19,13 @@ slakxs.de {
     }
 
     ######################## Private pages ########################
-    # Everything under /secret requires authentication
     @hasAuth {
         header Cookie *auth_session*
     }
 
-    # /secret/page - secret page
-    handle /secret/page* {
+    handle /page* {
         handle @hasAuth {
-            uri strip_prefix /secret/page
+            uri strip_prefix /secret
             reverse_proxy secret-page:50002
         }
         handle {
@@ -35,10 +33,9 @@ slakxs.de {
         }
     }
 
-    # /secret/containers - container manager
-    handle /secret/containers* {
+    handle /containers* {
         handle @hasAuth {
-            uri strip_prefix /secret/containers
+            uri strip_prefix /containers
             reverse_proxy container-manager:50001
         }
         handle {
