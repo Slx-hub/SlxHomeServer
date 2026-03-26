@@ -1,6 +1,13 @@
 # Wildcard certificate covers *.slakxs.de and slakxs.de
 # All blocks share the same cert
 
+
+# Redirect www.slakxs.de to slakxs.de
+www.slakxs.de {
+    tls /etc/caddy/certs/certbot/fullchain1.pem /etc/caddy/certs/certbot/privkey1.pem
+    redir https://slakxs.de{uri} 301
+}
+
 slakxs.de {
     tls /etc/caddy/certs/certbot/fullchain1.pem /etc/caddy/certs/certbot/privkey1.pem
 
@@ -43,6 +50,17 @@ slakxs.de {
         }
     }
 
+    # /monitoring - Beszel resource monitor
+    handle /monitoring* {
+        handle @hasAuth {
+            uri strip_prefix /monitoring
+            reverse_proxy beszel:8090
+        }
+        handle {
+            error 404
+        }
+    }
+
     # Catch-all for any other paths
     handle {
         error 404
@@ -52,12 +70,6 @@ slakxs.de {
 ntfy.slakxs.de {
     tls /etc/caddy/certs/certbot/fullchain1.pem /etc/caddy/certs/certbot/privkey1.pem
     reverse_proxy ntfy:80
-}
-
-# Redirect www.slakxs.de to slakxs.de
-www.slakxs.de {
-    tls /etc/caddy/certs/certbot/fullchain1.pem /etc/caddy/certs/certbot/privkey1.pem
-    redir https://slakxs.de{uri} 301
 }
 
 # Gitea — private git hosting

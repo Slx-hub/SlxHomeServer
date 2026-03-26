@@ -1,0 +1,35 @@
+services:
+  beszel:
+    image: henrygd/beszel:latest
+    container_name: beszel
+    restart: unless-stopped
+    expose:
+      - "8090"
+    volumes:
+      - beszel_data:/beszel_data
+    # Lets the hub reach the agent on the host via host.docker.internal:45876
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - main-network
+
+  beszel-agent:
+    image: henrygd/beszel-agent:latest
+    container_name: beszel-agent
+    restart: unless-stopped
+    # Host networking gives the agent direct access to host CPU/mem/disk/network
+    # metrics and lets the hub reach it at host.docker.internal:45876
+    network_mode: host
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      PORT: "45876"
+      KEY: "${BESZEL_AGENT_KEY}"
+
+volumes:
+  beszel_data:
+
+networks:
+  main-network:
+    external: true
+    name: main-network
