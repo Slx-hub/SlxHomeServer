@@ -30,7 +30,7 @@ slakxs.de {
         header Cookie *auth_session*
     }
 
-    handle /page* {
+    handle /secret* {
         handle @hasAuth {
             uri strip_prefix /secret
             reverse_proxy secret-page:50002
