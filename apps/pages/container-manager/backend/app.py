@@ -26,18 +26,23 @@ client = docker.from_env()
 
 
 def discover_compose_files() -> list[dict]:
-    """Walk the project tree and find all docker-compose.yml files."""
+    """Walk the project tree and find all docker-compose.yml / compose.yml files."""
     root = Path(PROJECT_ROOT)
+    seen: set[Path] = set()
     results = []
-    for compose_file in sorted(root.rglob("docker-compose.yml")):
+    for compose_file in sorted(root.rglob("*compose.yml")):
+        # Prefer docker-compose.yml; skip compose.yml if we already have
+        # a docker-compose.yml for the same directory.
+        if compose_file.parent in seen:
+            continue
+        seen.add(compose_file.parent)
         rel = compose_file.relative_to(root)
-        # Name is the parent folder of the compose file
         name = str(rel.parent)
         results.append({
             "name": name,
             "path": str(compose_file),
         })
-    return results
+    return sorted(results, key=lambda x: x["name"])
 
 
 def _compose_project_label(compose_path: str) -> str | None:

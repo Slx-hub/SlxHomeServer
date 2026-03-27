@@ -26,45 +26,45 @@ slakxs.de {
     }
 
     ######################## Private pages ########################
-    @hasAuth {
-        header Cookie *auth_session*
-    }
+    # forward_auth asks the auth service to validate the session cookie and
+    # required role. /verify returns 404 on failure so unauthenticated users
+    # get a silent 404 with no login hint.
 
     handle /secret* {
-        handle @hasAuth {
-            uri strip_prefix /secret
-            reverse_proxy secret-page:50002
+        forward_auth auth:49999 {
+            uri /verify?role=admin
         }
-        handle {
-            error 404
-        }
+        uri strip_prefix /secret
+        reverse_proxy secret-page:50002
     }
 
     handle /containers* {
-        handle @hasAuth {
-            uri strip_prefix /containers
-            reverse_proxy container-manager:50001
+        forward_auth auth:49999 {
+            uri /verify?role=admin
         }
-        handle {
-            error 404
-        }
+        uri strip_prefix /containers
+        reverse_proxy container-manager:50001
     }
 
     # /monitoring - Beszel resource monitor
     handle /monitoring* {
-        handle @hasAuth {
-            uri strip_prefix /monitoring
-            reverse_proxy beszel:8090
+        forward_auth auth:49999 {
+            uri /verify?role=admin
         }
-        handle {
-            error 404
-        }
+        uri strip_prefix /monitoring
+        reverse_proxy beszel:8090
     }
 
     # Catch-all for any other paths
     handle {
         error 404
     }
+}
+
+# Stoat — self-hosted chat (requires guest role or above to reach /login)
+stoat.slakxs.de {
+    tls /etc/caddy/certs/certbot/fullchain1.pem /etc/caddy/certs/certbot/privkey1.pem
+    reverse_proxy stoat:80
 }
 
 ntfy.slakxs.de {
@@ -76,20 +76,15 @@ ntfy.slakxs.de {
 git.slakxs.de {
     tls /etc/caddy/certs/certbot/fullchain1.pem /etc/caddy/certs/certbot/privkey1.pem
 
-    @hasAuth {
-        header Cookie *auth_session*
-    }
-
-    # Auth endpoint - always accessible; sets a host-only cookie for git.slakxs.de
+    # Auth endpoint - always accessible
     handle /cookie* {
         reverse_proxy auth:49999
     }
 
-    handle @hasAuth {
-        reverse_proxy gitea:3000
-    }
-
     handle {
-        error 404
+        forward_auth auth:49999 {
+            uri /verify?role=dev
+        }
+        reverse_proxy gitea:3000
     }
 }

@@ -158,6 +158,8 @@ if [ "$CONFIGURE_FIREWALL" = true ]; then
     sudo ufw allow 80/tcp     comment 'HTTP  – Caddy'
     sudo ufw allow 443/tcp    comment 'HTTPS – Caddy'
     sudo ufw allow 2222/tcp   comment 'Git SSH – Gitea'
+    sudo ufw allow 7881/tcp   comment 'Stoat'
+    sudo ufw allow 50000:50100/udp comment 'Stoat'
     sudo ufw --force enable
     echo "==> Firewall active. Status:"
     sudo ufw status verbose

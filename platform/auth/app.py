@@ -1,7 +1,17 @@
 #!/usr/bin/env python3
 """
-Simple authentication service for session-based access control.
-Validates a token and returns a long-lived session cookie.
+Multi-role authentication service for session-based access control.
+
+Roles are configured via AUTH_TOKEN_<ROLE> environment variables, e.g.:
+    AUTH_TOKEN_ADMIN=supersecret
+    AUTH_TOKEN_GUEST=guestsecret
+
+Role hierarchy is defined in ROLE_HIERARCHY below. A role higher in the list
+(lower index) satisfies requirements for all roles below it. i.e. admin can
+access anything that requires guest.
+
+Caddy routes declare which role they require:
+    forward_auth auth:49999 { uri /verify?role=admin }
 """
 
 import json
@@ -12,16 +22,54 @@ from flask import Flask, request, make_response
 
 app = Flask(__name__)
 
-# Master token from environment variable
-MASTER_TOKEN = os.getenv("AUTH_TOKEN", "")
+# Ordered from most to least privileged. Admin satisfies any role requirement.
+# Add new role names here when you add AUTH_TOKEN_<ROLE> to .env.
+#   admin  — full access (main domain + all subdomains)
+#   dev    — all subdomains only (git, stoat, ...); no main-domain private paths
+#   guest  — stoat.slakxs.de only
+ROLE_HIERARCHY = ["admin", "dev", "guest"]
 
-if not MASTER_TOKEN:
-    raise ValueError("AUTH_TOKEN environment variable not set")
-
-# Session cookie settings
 SESSION_COOKIE_NAME = "auth_session"
 SESSION_COOKIE_DURATION = timedelta(days=3650)  # ~10 years
-SESSION_SECRET = secrets.token_hex(32)
+
+# Load tokens and generate a unique session secret for each configured role.
+_ROLE_TOKENS: dict[str, str] = {}   # role -> login token
+_ROLE_SESSIONS: dict[str, str] = {} # role -> random session cookie value
+
+for _role in ROLE_HIERARCHY:
+    _token = os.getenv(f"AUTH_TOKEN_{_role.upper()}", "")
+    if _token:
+        _ROLE_TOKENS[_role] = _token
+        _ROLE_SESSIONS[_role] = secrets.token_hex(32)
+
+# Backward-compat: bare AUTH_TOKEN counts as admin token.
+if not _ROLE_TOKENS:
+    _legacy = os.getenv("AUTH_TOKEN", "")
+    if _legacy:
+        _ROLE_TOKENS["admin"] = _legacy
+        _ROLE_SESSIONS["admin"] = secrets.token_hex(32)
+
+if not _ROLE_TOKENS:
+    raise ValueError(
+        "No role tokens set. Define AUTH_TOKEN_ADMIN (and optionally "
+        "AUTH_TOKEN_GUEST, etc.) in your environment."
+    )
+
+
+def _role_for_session(cookie_value: str) -> str | None:
+    """Return the role whose session secret matches cookie_value, or None."""
+    for role, session_secret in _ROLE_SESSIONS.items():
+        if secrets.compare_digest(cookie_value, session_secret):
+            return role
+    return None
+
+
+def _role_satisfies(session_role: str, required_role: str) -> bool:
+    """Return True if session_role has at least the privilege of required_role."""
+    try:
+        return ROLE_HIERARCHY.index(session_role) <= ROLE_HIERARCHY.index(required_role)
+    except ValueError:
+        return False
 
 
 @app.route("/cookie", methods=["GET", "POST"])
@@ -30,7 +78,60 @@ def login():
     Handle login requests. Both GET (for form display) and POST (for submission).
     """
     if request.method == "GET":
-        # Sanitise return URL — only allow relative paths
+        # If the visitor already holds a valid admin session, show the token dashboard.
+        existing_session = request.cookies.get(SESSION_COOKIE_NAME, "")
+        existing_role = _role_for_session(existing_session) if existing_session else None
+        if existing_role and _role_satisfies(existing_role, "admin"):
+            rows = ""
+            for role in ROLE_HIERARCHY:
+                token = _ROLE_TOKENS.get(role)
+                if not token:
+                    continue
+                role_esc = role.replace("&", "&amp;").replace("<", "&lt;")
+                token_esc = token.replace("&", "&amp;").replace("<", "&lt;")
+                rows += f"""
+                <tr>
+                    <td><code>{role_esc}</code></td>
+                    <td><code id="tok-{role_esc}" class="token">{token_esc}</code></td>
+                    <td><button onclick="copy('{role_esc}')">Copy</button></td>
+                </tr>"""
+            html = f"""<!DOCTYPE html>
+<html>
+<head>
+    <title>Auth — Token Dashboard</title>
+    <style>
+        body {{ font-family: sans-serif; margin: 50px; }}
+        table {{ border-collapse: collapse; }}
+        th, td {{ padding: 10px 16px; border: 1px solid #ccc; text-align: left; }}
+        th {{ background: #f0f0f0; }}
+        code.token {{ font-size: 13px; word-break: break-all; }}
+        button {{ padding: 4px 12px; cursor: pointer; }}
+        .copied {{ color: green; font-size: 12px; margin-left: 8px; }}
+    </style>
+</head>
+<body>
+    <h2>Auth Token Dashboard</h2>
+    <p>Logged in as <strong>admin</strong>.</p>
+    <table>
+        <tr><th>Role</th><th>Login Token</th><th></th></tr>
+        {rows}
+    </table>
+    <script>
+        function copy(role) {{
+            var tok = document.getElementById('tok-' + role).innerText;
+            navigator.clipboard.writeText(tok).then(function() {{
+                var btn = event.target;
+                var old = btn.innerText;
+                btn.innerText = 'Copied!';
+                setTimeout(function() {{ btn.innerText = old; }}, 1500);
+            }});
+        }}
+    </script>
+</body>
+</html>"""
+            return html, 200, {"Content-Type": "text/html"}
+
+        # Not authenticated as admin — show the login form.
         return_url = request.args.get("return", "/")
         if not return_url.startswith("/"):
             return_url = "/"
@@ -58,7 +159,7 @@ def login():
         """
         return html, 200, {"Content-Type": "text/html"}
 
-    # POST request - validate token
+    # POST request - find which role this token belongs to
     token = request.form.get("token", "").strip()
 
     if not token:
@@ -72,7 +173,13 @@ def login():
         </html>
         """, 400, {"Content-Type": "text/html"}
 
-    if token != MASTER_TOKEN:
+    matched_role = None
+    for role, role_token in _ROLE_TOKENS.items():
+        if secrets.compare_digest(token, role_token):
+            matched_role = role
+            break
+
+    if matched_role is None:
         # Always return 401, never indicate why it failed (security)
         return """
         <!DOCTYPE html>
@@ -104,17 +211,17 @@ def login():
         </html>
     """, 200)
 
-    # Host-only cookie (no domain= attribute): the browser will only send this
-    # cookie back to the exact host it was set on.  Each protected subdomain
-    # exposes /cookie and gets its own scoped session this way.
+    # Domain cookie valid for all *.slakxs.de. The value is the role-specific
+    # session secret, which /verify then checks against the required role.
     response.set_cookie(
         SESSION_COOKIE_NAME,
-        value=SESSION_SECRET,
+        value=_ROLE_SESSIONS[matched_role],
         max_age=int(SESSION_COOKIE_DURATION.total_seconds()),
         httponly=True,
         secure=True,
         samesite="Lax",
         path="/",
+        domain=".slakxs.de",
     )
 
     return response
@@ -123,15 +230,29 @@ def login():
 @app.route("/verify", methods=["GET"])
 def verify():
     """
-    Internal endpoint for Caddy to verify session cookie validity.
-    Returns 200 if valid, 401 if not.
-    """
-    session = request.cookies.get(SESSION_COOKIE_NAME)
+    Internal endpoint for Caddy forward_auth to verify session cookie validity.
 
-    if session == SESSION_SECRET:
-        return "", 200
-    else:
-        return "", 401
+    Query param:
+        role=<name>  — the minimum role required for this route.
+                       Omit to accept any valid session.
+
+    Returns 200 if the session satisfies the required role, 404 otherwise
+    (404 so that Caddy passes the status through and the client sees no login
+    hint, matching the rest of the site's behaviour).
+    """
+    session = request.cookies.get(SESSION_COOKIE_NAME, "")
+    if not session:
+        return "", 404
+
+    session_role = _role_for_session(session)
+    if session_role is None:
+        return "", 404
+
+    required_role = request.args.get("role", "")
+    if required_role and not _role_satisfies(session_role, required_role):
+        return "", 404
+
+    return "", 200
 
 
 @app.route("/healthz", methods=["GET"])
