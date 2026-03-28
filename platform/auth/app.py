@@ -14,6 +14,7 @@ Caddy routes declare which role they require:
     forward_auth auth:49999 { uri /verify?role=admin }
 """
 
+import hashlib
 import json
 import os
 import secrets
@@ -40,14 +41,10 @@ for _role in ROLE_HIERARCHY:
     _token = os.getenv(f"AUTH_TOKEN_{_role.upper()}", "")
     if _token:
         _ROLE_TOKENS[_role] = _token
-        _ROLE_SESSIONS[_role] = secrets.token_hex(32)
-
-# Backward-compat: bare AUTH_TOKEN counts as admin token.
-if not _ROLE_TOKENS:
-    _legacy = os.getenv("AUTH_TOKEN", "")
-    if _legacy:
-        _ROLE_TOKENS["admin"] = _legacy
-        _ROLE_SESSIONS["admin"] = secrets.token_hex(32)
+        # Derive a stable session secret so cookies survive service restarts.
+        _ROLE_SESSIONS[_role] = hashlib.sha256(
+            f"auth_session_v1:{_token}".encode()
+        ).hexdigest()
 
 if not _ROLE_TOKENS:
     raise ValueError(
@@ -98,7 +95,7 @@ def login():
             html = f"""<!DOCTYPE html>
 <html>
 <head>
-    <title>Auth — Token Dashboard</title>
+    <title>Auth - Token Dashboard</title>
     <style>
         body {{ font-family: sans-serif; margin: 50px; }}
         table {{ border-collapse: collapse; }}
