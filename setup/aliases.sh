@@ -23,3 +23,4 @@ alias ports='ss -tulnp'
 alias dps='docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"'
 alias getip='curl https://ipinfo.io/ip'
 alias docker-compose='docker compose'  # Avoid confusion with older docker-compose tool
+alias dc='docker compose'
