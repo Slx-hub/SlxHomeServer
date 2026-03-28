@@ -1,6 +1,15 @@
 # Wildcard certificate covers *.slakxs.de and slakxs.de
 # All blocks share the same cert
 
+# Shared snippet — import this in any block that needs a login endpoint.
+# The auth cookie is set for .slakxs.de so logging in from any subdomain
+# grants access across the whole domain.
+(cookie) {
+    handle /cookie* {
+        reverse_proxy auth:49999
+    }
+}
+
 
 # Redirect www.slakxs.de to slakxs.de
 www.slakxs.de {
@@ -21,9 +30,7 @@ slakxs.de {
     }
 
     # Authentication endpoint - always accessible
-    handle /cookie* {
-        reverse_proxy auth:49999
-    }
+    import cookie
 
     ######################## Private pages ########################
     # forward_auth asks the auth service to validate the session cookie and
@@ -64,11 +71,31 @@ slakxs.de {
 # Stoat — self-hosted chat (requires guest role or above to reach /login)
 stoat.slakxs.de {
     tls /etc/caddy/certs/certbot/fullchain1.pem /etc/caddy/certs/certbot/privkey1.pem
-    reverse_proxy stoat:80
+
+    import cookie
+
+    @websocket {
+        header Connection *Upgrade*
+        header Upgrade websocket
+    }
+
+    handle @websocket {
+        reverse_proxy stoat:80
+    }
+    
+    handle {
+        forward_auth auth:49999 {
+            uri /verify?role=guest
+        }
+        reverse_proxy stoat:80
+    }
 }
 
 ntfy.slakxs.de {
     tls /etc/caddy/certs/certbot/fullchain1.pem /etc/caddy/certs/certbot/privkey1.pem
+
+    import cookie
+
     reverse_proxy ntfy:80
 }
 
@@ -76,15 +103,38 @@ ntfy.slakxs.de {
 git.slakxs.de {
     tls /etc/caddy/certs/certbot/fullchain1.pem /etc/caddy/certs/certbot/privkey1.pem
 
-    # Auth endpoint - always accessible
-    handle /cookie* {
-        reverse_proxy auth:49999
-    }
+    import cookie
 
     handle {
         forward_auth auth:49999 {
             uri /verify?role=dev
         }
         reverse_proxy gitea:3000
+    }
+}
+
+# Jellyfin — media server (host-networked, reached via host gateway)
+jelly.slakxs.de {
+    tls /etc/caddy/certs/certbot/fullchain1.pem /etc/caddy/certs/certbot/privkey1.pem
+
+    import cookie
+
+    # WebSocket upgrades bypass the cookie gate — Jellyfin's own token
+    # auth still applies, and the client can only reach this point after
+    # the initial HTTP auth check has already passed in the browser session.
+    @websocket {
+        header Connection *Upgrade*
+        header Upgrade websocket
+    }
+
+    handle @websocket {
+        reverse_proxy host.docker.internal:8096
+    }
+
+    handle {
+        forward_auth auth:49999 {
+            uri /verify?role=guest
+        }
+        reverse_proxy host.docker.internal:8096
     }
 }
