@@ -47,7 +47,12 @@ export class ProjectCard {
             actions.appendChild(this._actionBtn('↻ Restart', '', () => this._exec(() => this.api.projectRestart(p.name), 'Restarting…')));
             actions.appendChild(this._actionBtn('📋 Logs', '', () => this.logModal.openProject(p.name)));
         }
-        actions.appendChild(this._actionBtn('⟳ Rebuild', 'btn-muted', () => this._exec(() => this.api.projectRebuild(p.name), 'Rebuilding… (this may take a while)')));
+        const rebuildBtn = this._actionBtn('⟳ Rebuild', 'btn-muted', () => {
+            if (!confirm('Rebuild from scratch?\n\nThis will run compose build followed by compose up. Containers will be recreated — any data not stored in a bind mount or named volume may be lost.')) return;
+            this._exec(() => this.api.projectRebuild(p.name), 'Rebuilding… (this may take a while)');
+        });
+        rebuildBtn.title = 'Rebuild images from scratch and restart — may cause data loss';
+        actions.appendChild(rebuildBtn);
 
         return actions;
     }
@@ -118,7 +123,7 @@ export class ProjectCard {
                     el('div', { className: 'service-meta' },
                         svc.running ? `Up ${formatUptime(svc.uptime_seconds)}` : svc.status,
                         svc.health !== 'none' ? ` · ${svc.health}` : '',
-                        svc.ports.length ? ` · ${svc.ports.join(', ')}` : '',
+                        svc.ports ? ` · ${svc.ports}` : '',
                     ),
                 ),
             );
@@ -132,6 +137,12 @@ export class ProjectCard {
             } else {
                 actions.appendChild(this._actionBtn('▶', 'btn-success btn-sm', () => this._exec(() => this.api.serviceStart(svc.id), `Starting ${svc.service}…`)));
             }
+            const svcRebuildBtn = this._actionBtn('⟳', 'btn-muted btn-sm', () => {
+                if (!confirm(`Rebuild ${svc.service} from scratch?\n\nThis will run compose build and compose up for this service. Any data not stored in a bind mount or named volume may be lost.`)) return;
+                this._exec(() => this.api.serviceRebuild(svc.id), `Rebuilding ${svc.service}… (this may take a while)`);
+            });
+            svcRebuildBtn.title = 'Rebuild image from scratch and restart — may cause data loss';
+            actions.appendChild(svcRebuildBtn);
 
             row.append(info, actions);
             panel.appendChild(row);

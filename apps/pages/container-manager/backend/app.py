@@ -6,6 +6,7 @@ start/stop/restart/logs operations via the Docker socket.
 
 import os
 import asyncio
+import subprocess
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -60,7 +61,7 @@ def _get_containers_for_project(project_name: str) -> list:
     )
 
 
-def _container_info(c) -> dict:
+def _container_info(c, ports: str = "") -> dict:
     """Extract useful info from a container object."""
     state = c.attrs.get("State", {})
     health = state.get("Health", {})
@@ -97,22 +98,24 @@ def _container_info(c) -> dict:
         "started_at": started_iso,
         "finished_at": finished_at if not finished_at.startswith("0001") else None,
         "uptime_seconds": uptime,
-        "ports": _format_ports(c.attrs.get("NetworkSettings", {}).get("Ports", {})),
+        "ports": ports,
     }
 
 
-def _format_ports(ports_dict: dict) -> list[str]:
-    """Format port bindings into readable strings."""
-    result = []
-    if not ports_dict:
-        return result
-    for container_port, bindings in ports_dict.items():
-        if bindings:
-            for b in bindings:
-                result.append(f"{b.get('HostPort', '?')}:{container_port}")
-        else:
-            result.append(container_port)
-    return result
+def _fetch_port_strings() -> dict[str, str]:
+    """Run `docker ps -a --format` once and return a full_id -> ports_string map."""
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "-a", "--no-trunc", "--format", "{{.ID}}\t{{.Ports}}"],
+            capture_output=True, text=True, timeout=5,
+        )
+        mapping: dict[str, str] = {}
+        for line in result.stdout.splitlines():
+            cid, _, ports = line.partition("\t")
+            mapping[cid.strip()] = ports.strip()
+        return mapping
+    except Exception:
+        return {}
 
 
 # ── Compose-level operations (async subprocess) ─────────────────────────
@@ -142,12 +145,13 @@ async def _compose_command(compose_path: str, command: list[str]) -> str:
 def list_projects():
     """List all discovered compose projects with their service states."""
     compose_files = discover_compose_files()
+    port_strings = _fetch_port_strings()
     projects = []
 
     for cf in compose_files:
         project_name = _compose_project_label(cf["path"])
         containers = _get_containers_for_project(project_name)
-        services = [_container_info(c) for c in containers]
+        services = [_container_info(c, port_strings.get(c.id, "")) for c in containers]
 
         # Determine aggregate status
         if not services:
@@ -258,6 +262,35 @@ def service_restart(container_id: str):
     c = _find_container(container_id)
     c.restart(timeout=10)
     return {"status": "restarted"}
+
+
+@app.post("/api/services/{container_id}/rebuild")
+async def service_rebuild(container_id: str):
+    """Rebuild a single service image and restart it."""
+    c = _find_container(container_id)
+    service_name = c.labels.get("com.docker.compose.service")
+    if not service_name:
+        raise HTTPException(status_code=400, detail="Container is not part of a compose project")
+
+    # Prefer the label that records the exact config file path.
+    config_files = c.labels.get("com.docker.compose.project.config_files", "")
+    compose_path = config_files.split(",")[0].strip() if config_files else ""
+
+    if not compose_path or not Path(compose_path).exists():
+        # Fall back: match by project label against our discovered files.
+        project_label = c.labels.get("com.docker.compose.project", "")
+        found = next(
+            (cf for cf in discover_compose_files()
+             if _compose_project_label(cf["path"]) == project_label),
+            None,
+        )
+        if not found:
+            raise HTTPException(status_code=404, detail=f"Compose file not found for project '{project_label}'")
+        compose_path = found["path"]
+
+    await _compose_command(compose_path, ["build", service_name])
+    output = await _compose_command(compose_path, ["up", "-d", service_name])
+    return {"output": output}
 
 
 @app.get("/api/services/{container_id}/logs")

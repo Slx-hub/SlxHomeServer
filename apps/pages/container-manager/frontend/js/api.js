@@ -53,6 +53,10 @@ export class Api {
         return this._request(`api/services/${encodeURIComponent(containerId)}/restart`, { method: 'POST' });
     }
 
+    serviceRebuild(containerId) {
+        return this._request(`api/services/${encodeURIComponent(containerId)}/rebuild`, { method: 'POST' });
+    }
+
     serviceLogs(containerId, lines = 100) {
         return this._request(`api/services/${encodeURIComponent(containerId)}/logs?lines=${lines}`);
     }
