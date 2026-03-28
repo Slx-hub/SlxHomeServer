@@ -7,7 +7,7 @@ Requires=docker.service
 
 [Service]
 Type=oneshot
-ExecStart=@@REPO_PATH@@/dev/backup/run-backup.sh
+ExecStart=@@REPO_PATH@@/infra/backup/run-backup.sh
 # Capture all output to the journal (also visible via: journalctl -u backup.service)
 StandardOutput=journal
 StandardError=journal
