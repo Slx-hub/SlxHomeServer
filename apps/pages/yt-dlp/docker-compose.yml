@@ -1,0 +1,9 @@
+version: '3.8'
+services:
+  ytdlpd:
+    image: acidburnmonkey/acidburn-ytdlp:latest
+    ports:
+      - '50003:5000'
+    volumes:
+      - /data/media/youtube:/app/downloads #your volume
+    restart: unless-stopped
