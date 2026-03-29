@@ -9,9 +9,11 @@ set -uo pipefail
 
 # Pass --full through to the container if given
 CONTAINER_ARGS=""
+NO_REBOOT=false
 for arg in "$@"; do
     case "$arg" in
         --full) CONTAINER_ARGS="--full" ;;
+        --no-reboot) NO_REBOOT=true ;;
         *) echo "Unknown argument: $arg" >&2; exit 1 ;;
     esac
 done
@@ -109,6 +111,11 @@ if [[ "$IS_WEEKLY" == true ]]; then
     fi
 fi
 
+# Disk usage
+SYS_USAGE=$(df / --output=pcent 2>/dev/null | tail -1 | tr -d ' ')
+BACKUP_USAGE=$(df /backup --output=pcent 2>/dev/null | tail -1 | tr -d ' ')
+DISK_LINE=$'\n'"Disk: system ${SYS_USAGE} · backup ${BACKUP_USAGE}"
+
 # Unmount backup drive
 log "Unmounting /backup..."
 umount /backup || log "WARNING: Failed to unmount /backup"
@@ -123,15 +130,19 @@ if [[ $BACKUP_EXIT -ne 0 ]]; then
     fi
     [[ -z "$ERROR_LINES" ]] && ERROR_LINES="(no ERROR lines found in log — check /backup/logs)"
 
-    ntfy_push "Backup Failed" "Duration: ${DURATION} | Weekly: ${IS_WEEKLY} | Files synced: ${RSYNC_TRANSFERRED}${SNAPSHOT_LINE}
+    ntfy_push "Backup Failed" "Duration: ${DURATION} | Weekly: ${IS_WEEKLY} | Files synced: ${RSYNC_TRANSFERRED}${SNAPSHOT_LINE}${DISK_LINE}
 --- Errors ---
 ${ERROR_LINES}" "high" "warning"
     exit "$BACKUP_EXIT"
 fi
 
-ntfy_push "Backup OK" "Duration: ${DURATION} | Weekly: ${IS_WEEKLY} | Files synced: ${RSYNC_TRANSFERRED}${SNAPSHOT_LINE}" "default" "white_check_mark"
+ntfy_push "Backup OK" "Duration: ${DURATION} | Weekly: ${IS_WEEKLY} | Files synced: ${RSYNC_TRANSFERRED}${SNAPSHOT_LINE}${DISK_LINE}" "default" "white_check_mark"
 
 log "Backup successful — initiating reboot"
 # systemctl reboot is non-blocking; the script exits 0 cleanly before the reboot kicks in
-systemctl reboot
+if [[ "$NO_REBOOT" == true ]]; then
+    log "Reboot skipped (--no-reboot)"
+else
+    systemctl reboot
+fi
 exit 0
