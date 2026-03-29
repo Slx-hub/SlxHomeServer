@@ -15,14 +15,7 @@ services:
     environment:
       NTFY_BASE_URL: https://ntfy.slakxs.de
       NTFY_CACHE_FILE: /var/lib/ntfy/cache.db
-      NTFY_AUTH_DEFAULT_ACCESS: deny-all
-      NTFY_ENABLE_LOGIN: true
-      # NTFY_AUTH_USERS comes through env_file (no variable substitution, $ preserved literally)
       NTFY_BEHIND_PROXY: true
-      NTFY_WEB_PUSH_PUBLIC_KEY: "${NTFY_WEB_PUSH_PUBLIC_KEY}"
-      NTFY_WEB_PUSH_PRIVATE_KEY: "${NTFY_WEB_PUSH_PRIVATE_KEY}"
-      NTFY_WEB_PUSH_FILE: /var/lib/ntfy/webpush.db
-      NTFY_WEB_PUSH_EMAIL_ADDRESS: "${NTFY_WEB_PUSH_EMAIL_ADDRESS}"
     volumes:
       - ntfy-data:/var/lib/ntfy
     ports:

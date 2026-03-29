@@ -101,12 +101,7 @@ ntfy.slakxs.de {
 
     import cookie
 
-    handle {
-        forward_auth auth:49999 {
-            uri /verify?role=dev
-        }
-        reverse_proxy ntfy:80
-    }
+    reverse_proxy ntfy:80
 }
 
 # Gitea — private git hosting

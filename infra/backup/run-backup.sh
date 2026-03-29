@@ -25,12 +25,10 @@ log() {
 
 # ntfy notification config
 NTFY_URL="http://localhost:42000"
-NTFY_TOPIC="slx-homeserver-alerts"
 
 ntfy_push() {
     local title="$1" message="$2" priority="${3:-default}" tags="${4:-}"
     curl -s --max-time 5 \
-        -u "$NTFY_USER:$NTFY_PASSWORD" \
         -H "Title: $title" \
         -H "Priority: $priority" \
         ${tags:+-H "Tags: $tags"} \
@@ -50,6 +48,9 @@ source "$ROOT_ENV"
 : "${BACKUP_DEVICE:?Root .env must define BACKUP_DEVICE}"
 
 log "=== Backup runner started ==="
+
+# Record wall-clock start so we can report duration in the notification
+START_TIME=$(date +%s)
 
 # Mount backup drive
 if mountpoint -q /backup; then
@@ -78,19 +79,57 @@ docker run --rm \
 
 log "Container exited with code $BACKUP_EXIT"
 
+# ── Post-run stats ────────────────────────────────────────────────────────
+ELAPSED=$(( $(date +%s) - START_TIME ))
+DURATION="$(( ELAPSED / 60 ))m $(( ELAPSED % 60 ))s"
+
+# Most recent log written by the container
+LATEST_LOG=$(ls -1t /backup/logs/backup-*.log 2>/dev/null | head -1)
+
+# Was this a weekly run?
+IS_WEEKLY=false
+if [[ "$(date +%u)" -eq 2 || -n "$CONTAINER_ARGS" ]]; then
+    IS_WEEKLY=true
+fi
+
+# Total files transferred across all rsync sources (from rsync summary lines)
+RSYNC_TRANSFERRED=0
+if [[ -n "$LATEST_LOG" ]]; then
+    RSYNC_TRANSFERRED=$(grep -oP 'Number of regular files transferred: \K[\d,]+' "$LATEST_LOG" \
+        | tr -d ',' | awk '{s+=$1} END {print s+0}')
+fi
+
+# Snapshot size (weekly runs only)
+SNAPSHOT_LINE=""
+if [[ "$IS_WEEKLY" == true ]]; then
+    SNAP_FILE="/backup/snapshots/snapshot-$(date +%Y%m%d).tar.gz"
+    if [[ -f "$SNAP_FILE" ]]; then
+        SNAP_SIZE=$(du -sh "$SNAP_FILE" 2>/dev/null | cut -f1)
+        SNAPSHOT_LINE=$'\n'"Snapshot: ${SNAP_SIZE}"
+    fi
+fi
+
 # Unmount backup drive
 log "Unmounting /backup..."
 umount /backup || log "WARNING: Failed to unmount /backup"
 
 if [[ $BACKUP_EXIT -ne 0 ]]; then
     log "ERROR: Backup failed — skipping reboot"
-    ntfy_push "Backup Failed" "Backup on $(hostname) finished with errors (exit $BACKUP_EXIT). Check logs in /backup/logs." "high" "warning"
+
+    # Pull the first few ERROR lines from the log as context
+    ERROR_LINES=""
+    if [[ -n "$LATEST_LOG" ]]; then
+        ERROR_LINES=$(grep 'ERROR:' "$LATEST_LOG" | head -5 | sed 's/\[.*\] //' | tr '\n' '|' | sed 's/|$//' | tr '|' '\n')
+    fi
+    [[ -z "$ERROR_LINES" ]] && ERROR_LINES="(no ERROR lines found in log — check /backup/logs)"
+
+    ntfy_push "Backup Failed" "Duration: ${DURATION} | Weekly: ${IS_WEEKLY} | Files synced: ${RSYNC_TRANSFERRED}${SNAPSHOT_LINE}
+--- Errors ---
+${ERROR_LINES}" "high" "warning"
     exit "$BACKUP_EXIT"
 fi
 
-# ---- TEST BLOCK: remove once notifications are confirmed working ----
-ntfy_push "Backup OK" "Backup on $(hostname) completed successfully." "default" "white_check_mark"
-# ---- END TEST BLOCK ----
+ntfy_push "Backup OK" "Duration: ${DURATION} | Weekly: ${IS_WEEKLY} | Files synced: ${RSYNC_TRANSFERRED}${SNAPSHOT_LINE}" "default" "white_check_mark"
 
 log "Backup successful — initiating reboot"
 # systemctl reboot is non-blocking; the script exits 0 cleanly before the reboot kicks in

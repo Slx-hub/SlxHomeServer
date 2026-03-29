@@ -4,7 +4,7 @@ services:
     container_name: beszel
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8090/ || exit 1"]
+      test: ["CMD", "/beszel", "health"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -24,11 +24,7 @@ services:
     container_name: beszel-agent
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "test -S /var/run/docker.sock"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
+      disable: true
     # Host networking gives the agent direct access to host CPU/mem/disk/network
     # metrics and lets the hub reach it at host.docker.internal:45876
     network_mode: host
