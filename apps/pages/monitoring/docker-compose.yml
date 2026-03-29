@@ -39,6 +39,8 @@ services:
     environment:
       PORT: "45876"
       KEY: "${BESZEL_AGENT_KEY}"
+      TOKEN: "${BESZEL_AGENT_TOKEN}"
+      HUB_URL: "http://localhost:8090"
 
 volumes:
   beszel_data:

@@ -53,18 +53,23 @@ slakxs.de {
         reverse_proxy container-manager:50001
     }
 
-    # /monitoring - Beszel resource monitor
-    handle /monitoring* {
-        forward_auth auth:49999 {
-            uri /verify?role=admin
-        }
-        uri strip_prefix /monitoring
-        reverse_proxy beszel:8090
-    }
-
     # Catch-all for any other paths
     handle {
         error 404
+    }
+}
+
+# Beszel — resource monitor (dedicated subdomain avoids subpath asset issues)
+monitor.slakxs.de {
+    tls /etc/caddy/certs/certbot/fullchain1.pem /etc/caddy/certs/certbot/privkey1.pem
+
+    import cookie
+
+    handle {
+        forward_auth auth:49999 {
+            uri /verify?role=dev
+        }
+        reverse_proxy beszel:8090
     }
 }
 
@@ -96,7 +101,12 @@ ntfy.slakxs.de {
 
     import cookie
 
-    reverse_proxy ntfy:80
+    handle {
+        forward_auth auth:49999 {
+            uri /verify?role=dev
+        }
+        reverse_proxy ntfy:80
+    }
 }
 
 # Gitea — private git hosting
