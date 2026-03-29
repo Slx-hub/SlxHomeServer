@@ -65,6 +65,20 @@ body {
 .btn-success:hover { background: rgba(76,175,80,.12); }
 .btn-muted { color: var(--text-muted); }
 
+/* Star / favorite button */
+.btn-star {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 1.2rem;
+    color: var(--text-muted);
+    padding: 2px 4px;
+    line-height: 1;
+    transition: color .15s, transform .1s;
+}
+.btn-star:hover { color: var(--yellow); transform: scale(1.2); }
+.btn-star.active { color: var(--yellow); }
+
 /* ── Project Grid ────────────────────────────────────────────────────── */
 .project-grid {
     display: grid;

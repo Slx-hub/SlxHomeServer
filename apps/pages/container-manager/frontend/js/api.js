@@ -60,4 +60,16 @@ export class Api {
     serviceLogs(containerId, lines = 100) {
         return this._request(`api/services/${encodeURIComponent(containerId)}/logs?lines=${lines}`);
     }
+
+    getFavorites() {
+        return this._request('api/favorites');
+    }
+
+    addFavorite(name) {
+        return this._request(`api/favorites/${this._encodeName(name)}`, { method: 'POST' });
+    }
+
+    removeFavorite(name) {
+        return this._request(`api/favorites/${this._encodeName(name)}`, { method: 'DELETE' });
+    }
 }

@@ -6,6 +6,7 @@ start/stop/restart/logs operations via the Docker socket.
 
 import os
 import asyncio
+import json
 import subprocess
 from pathlib import Path
 from datetime import datetime, timezone
@@ -321,6 +322,44 @@ def _find_container(container_id: str):
         raise HTTPException(status_code=404, detail=f"Container '{container_id}' not found")
     except APIError as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Favorites ────────────────────────────────────────────────────────────
+
+FAVORITES_FILE = Path("/app/data/favorites.json")
+
+
+def _load_favorites() -> set[str]:
+    try:
+        return set(json.loads(FAVORITES_FILE.read_text()))
+    except (FileNotFoundError, json.JSONDecodeError, ValueError):
+        return set()
+
+
+def _save_favorites(favs: set[str]) -> None:
+    FAVORITES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    FAVORITES_FILE.write_text(json.dumps(sorted(favs)))
+
+
+@app.get("/api/favorites")
+def get_favorites():
+    return {"favorites": sorted(_load_favorites())}
+
+
+@app.post("/api/favorites/{project_name:path}")
+def add_favorite(project_name: str):
+    favs = _load_favorites()
+    favs.add(project_name)
+    _save_favorites(favs)
+    return {"favorites": sorted(favs)}
+
+
+@app.delete("/api/favorites/{project_name:path}")
+def remove_favorite(project_name: str):
+    favs = _load_favorites()
+    favs.discard(project_name)
+    _save_favorites(favs)
+    return {"favorites": sorted(favs)}
 
 
 # ── Serve frontend static files ─────────────────────────────────────────

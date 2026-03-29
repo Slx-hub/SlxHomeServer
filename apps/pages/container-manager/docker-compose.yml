@@ -17,6 +17,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       # Mount the project root at its real path so docker compose paths resolve correctly
       - /home/slx/SlxHomeServer:/home/slx/SlxHomeServer:ro
+      # Persist favorites across rebuilds
+      - /data/container-manager:/app/data
     environment:
       PROJECT_ROOT: /home/slx/SlxHomeServer
     networks:

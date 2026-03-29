@@ -5,11 +5,12 @@ import { el, formatUptime, escapeHtml } from './utils.js';
 import { showToast } from './toast.js';
 
 export class ProjectCard {
-    constructor(project, api, logModal, onRefresh) {
+    constructor(project, api, logModal, onRefresh, isFavorite = false) {
         this.project = project;
         this.api = api;
         this.logModal = logModal;
         this.onRefresh = onRefresh;
+        this.isFavorite = isFavorite;
         this.element = this._render();
     }
 
@@ -34,7 +35,23 @@ export class ProjectCard {
             el('h2', {}, p.name),
             badge,
         );
-        return el('div', { className: 'card-header' }, titleGroup);
+        const starBtn = el('button', {
+            className: `btn-star${this.isFavorite ? ' active' : ''}`,
+            title: this.isFavorite ? 'Remove from favorites' : 'Add to favorites',
+            onClick: async () => {
+                try {
+                    if (this.isFavorite) {
+                        await this.api.removeFavorite(p.name);
+                    } else {
+                        await this.api.addFavorite(p.name);
+                    }
+                    this.onRefresh();
+                } catch (err) {
+                    showToast(`Error: ${err.message}`, 'error', 4000);
+                }
+            },
+        }, this.isFavorite ? '★' : '☆');
+        return el('div', { className: 'card-header' }, titleGroup, starBtn);
     }
 
     _renderActions(p) {

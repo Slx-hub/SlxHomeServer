@@ -14,7 +14,8 @@ const refreshBtn = document.getElementById('btn-refresh');
 async function loadProjects() {
     appEl.innerHTML = '<div class="loading">Loading projects…</div>';
     try {
-        const data = await api.getProjects();
+        const [data, favData] = await Promise.all([api.getProjects(), api.getFavorites()]);
+        const favorites = new Set(favData.favorites);
         appEl.innerHTML = '';
 
         if (data.projects.length === 0) {
@@ -22,8 +23,14 @@ async function loadProjects() {
             return;
         }
 
-        for (const project of data.projects) {
-            const card = new ProjectCard(project, api, logModal, loadProjects);
+        // Favorites first, then alphabetical within each group
+        const sorted = [
+            ...data.projects.filter(p => favorites.has(p.name)),
+            ...data.projects.filter(p => !favorites.has(p.name)),
+        ];
+
+        for (const project of sorted) {
+            const card = new ProjectCard(project, api, logModal, loadProjects, favorites.has(project.name));
             appEl.appendChild(card.element);
         }
     } catch (err) {
