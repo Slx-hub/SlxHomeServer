@@ -43,3 +43,9 @@ Both paths should be included in `infra/backup/backup-sources.conf` and `infra/b
 - **Reverse proxy**: Caddy at `git.slakxs.de` — requires `@hasAuth` cookie, otherwise returns 404.
 - **Network**: Joins `main-network` (shared with other services and the reverse proxy).
 - **SSH**: Host port 2222 → container port 22 for git-over-SSH access.
+
+## Runners
+
+!Warning: UNITY RUNNER DOES CURRENTLY NOT WORK AS THEY ARE GREEDY CUNTS WHO WONT ALLOW SELF HOSTED UNLESS WE PAY FOUR FUCKING THOUSAND EUROS A YEAR
+
+*Unity Runner*: At `./unity-runner` you can find a compose setup to host your own Gitea runner with unity preinstalled. The Guide is located inside the Repo it's used for: `https://git.slakxs.de/slakxs/Slothydra/src/branch/main/Docs/Deployment`

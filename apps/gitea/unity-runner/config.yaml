@@ -1,0 +1,35 @@
+# act_runner configuration
+# Generated base: act_runner generate-config
+# Customised for Unity CI usage with host execution (no Docker-in-Docker).
+
+log:
+  level: info
+
+runner:
+  # .runner holds the registration token — stored in the /data volume.
+  file: /data/.runner
+  # Parallel jobs. Keep at 1 unless the container has enough resources for more.
+  capacity: 1
+  # UNITY_PATH is auto-discovered and exported by the entrypoint.
+  # It will be inherited by all job steps via the container environment.
+  envs: {}
+  timeout: 3h
+  insecure: false
+  fetch_timeout: 5s
+  fetch_interval: 2s
+
+cache:
+  # Disable the built-in cache server.
+  # actions/cache@v3 won't cache between runs, but won't break the build either.
+  enabled: false
+
+container:
+  # "-" disables Docker execution entirely.
+  # Jobs run directly inside this container (the "host" from act_runner's perspective).
+  # Do NOT mount /var/run/docker.sock — it is not needed and would be a security risk.
+  docker_host: "-"
+  network: ""
+  workdir_parent: /workspace
+
+host:
+  workdir_parent: /workspace

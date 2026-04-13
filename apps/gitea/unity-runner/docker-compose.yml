@@ -1,0 +1,30 @@
+name: unity-act-runner
+
+services:
+  runner:
+    build:
+      context: .
+      args:
+        # Must match a tag on https://hub.docker.com/r/unityci/editor/tags
+        # e.g. ubuntu-6000.3.10f1-base-3
+        UNITY_VERSION: ${UNITY_VERSION:-6000.3.10f1}
+        GAMECI_SCHEMA: ${GAMECI_SCHEMA:-3}
+    env_file:
+      - ../../../.env
+    environment:
+      CONFIG_FILE: /config.yaml
+    volumes:
+      # Persists the .runner registration file across container restarts.
+      # Delete this volume to force re-registration (e.g. after a token reset).
+      - runner-data:/data
+    restart: unless-stopped
+    networks:
+      - main-network
+
+networks:
+  main-network:
+    external: true
+    name: main-network
+
+volumes:
+  runner-data:
