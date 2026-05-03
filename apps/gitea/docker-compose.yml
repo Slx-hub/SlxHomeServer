@@ -20,6 +20,10 @@ services:
       # Git over SSH — host 2222 → container 22.
       # Host port 22 is kept for server administration.
       - "2222:22"
+    dns:
+      - 192.168.178.1
+      - 8.8.8.8
+      - 8.8.4.4
     volumes:
       - /data/gitea/data:/data
       - /data/gitea/config:/etc/gitea
