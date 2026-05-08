@@ -32,56 +32,44 @@ RUNNER_NAME=unity-runner
 RUNNER_LABELS=self-hosted,unity-linux:host
 ```
 
-## Step 2: Set Up the Unity License (Gitea Secret)
+## Step 2: Set Up the Unity License
 
-Unity Personal licenses are machine-specific. You **cannot** use CLI activation (`-username`/`-password`)
-for Personal licenses — that requires a paid plan. Instead, you must generate a license request file
-**from within the container** (so it contains the container's machine ID), activate it via Unity's website,
-and store the resulting license as a Gitea secret.
+The runner uses `game-ci/unity-activate@v2` to handle license activation. This action runs a Docker container that writes the `.ulf` directly to disk, bypassing the machine ID check — so your local `.ulf` works as-is.
 
-### 2a. Generate the license request file (`.alf`) from the container
+### 2a. Get the `.ulf` file from your local machine
 
-```bash
-# Create required directories
-docker compose exec runner mkdir -p ~/.config/unity3d ~/.local/share/unity3d ~/.cache/unity3d
+Activate Unity Hub on any computer with your account, then locate the license file:
 
-# Generate the activation request file — Unity writes it to /data/
-docker compose exec runner xvfb-run -a /opt/unity/Editor/Unity \
-  -batchmode -nographics \
-  -createManualActivationFile \
-  -logFile /tmp/alf.log
+- **Windows:** `C:\ProgramData\Unity\Unity_lic.ulf`
+- **macOS:** `/Library/Application Support/Unity/Unity_lic.ulf`
+- **Linux:** `~/.local/share/unity3d/Unity/Unity_lic.ulf`
 
-# Find the generated file
-docker compose exec runner ls /data/
+> **Tip:** If the file doesn't exist, open Unity Hub → Preferences → Licenses → Activate a new license → Personal.
+
+### 2b. Add secrets to Gitea
+
+Go to your repository → **Settings → Secrets** and add:
+
+| Secret | Value |
+|---|---|
+| `UNITY_LICENSE` | Full contents of your `.ulf` file (XML) |
+| `UNITY_EMAIL` | Your Unity account email |
+| `UNITY_PASSWORD` | Your Unity account password |
+
+### 2c. Add the activation step to your workflow
+
+```yaml
+- name: Activate Unity License
+  uses: game-ci/unity-activate@v2
+  env:
+    UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+    UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+    UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
 ```
 
-### 2b. Copy the `.alf` to your local machine
+> This step spawns a Docker container via the host Docker socket. The runner has `/var/run/docker.sock` mounted for this purpose.
 
-```bash
-docker compose cp runner:/data/<filename>.alf ./unity.alf
-```
-
-### 2c. Activate on Unity's website
-
-1. Go to **https://license.unity3d.com/manual**
-2. Log in with your Unity account
-3. Upload `unity.alf`
-4. Select **Unity Personal Edition**
-5. Download the resulting `.ulf` file
-
-### 2d. Copy the `.ulf` into the volume
-
-The license is stored on the `/data` volume alongside the runner registration file.
-This way it survives container rebuilds and **no workflow step is needed**.
-
-```bash
-docker compose cp unity.ulf runner:/data/Unity_lic.ulf
-```
-
-The entrypoint will copy it to `~/.config/unity3d/` on every container start.
-
-> **Note:** The license must be re-generated if you delete the `runner-data` Docker volume,
-> since a new volume means a new machine ID. Repeat from Step 2a to get a fresh `.alf`.
+> **Known issue:** `game-ci/unity-activate@v2` has a regex bug that fails to match Unity 6 version strings. If activation fails silently, try pinning to `game-ci/unity-activate@main` instead.
 
 ## Step 3: Build and Start the Runner
 
@@ -136,31 +124,22 @@ jobs:
           restore-keys: Library-
 
       - name: Run EditMode Tests
-        run: |
-          RESULTS="$GITHUB_WORKSPACE/test-results.xml"
-          LOG="$GITHUB_WORKSPACE/unity.log"
-
-          xvfb-run -a "$UNITY_PATH/Editor/Unity" \
-            -runTests \
-            -batchmode \
-            -nographics \
-            -projectPath "$GITHUB_WORKSPACE" \
-            -testResults "$RESULTS" \
-            -testPlatform EditMode \
-            -logFile "$LOG"
-
-          EXIT_CODE=$?
-          tail -60 "$LOG" 2>/dev/null || true
-          exit $EXIT_CODE
+        uses: game-ci/unity-test-runner@v4
+        id: tests
+        env:
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+        with:
+          testMode: EditMode
+          useHostNetwork: true
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v3
         with:
           name: test-results-pr${{ github.event.pull_request.number }}
-          path: |
-            test-results.xml
-            unity.log
+          path: ${{ steps.tests.outputs.artifactsPath }}
 ```
 
 ## Troubleshooting
@@ -169,9 +148,10 @@ jobs:
 
 **Error:** `No valid Unity Editor license found`
 
-- Ensure `UNITY_LICENSE` secret is set with the full `.ulf` file contents
-- Verify the license is valid on your local machine first
-- Check that the secret is readable in the repository
+- Ensure `UNITY_LICENSE`, `UNITY_EMAIL`, and `UNITY_PASSWORD` secrets are set on the repository
+- Verify the `.ulf` content was pasted in full (it starts with `<?xml` and ends with `</root>`)
+- Unity 6 has a known version-regex bug in `game-ci/unity-activate@v2` — try `game-ci/unity-activate@main` if activation silently fails
+- Check Docker socket access: `docker compose exec runner docker ps` should succeed
 
 ### Runner doesn't connect to Gitea
 

@@ -1,0 +1,24 @@
+name: gitea-runner
+
+services:
+  runner:
+    build:
+      context: .
+    env_file:
+      - ../../../.env
+    volumes:
+      # Persistent registration state
+      - runner-data:/data
+      # Docker socket for running containers in workflows
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+    networks:
+      - main-network
+
+networks:
+  main-network:
+    external: true
+    name: main-network
+
+volumes:
+  runner-data:

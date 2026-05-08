@@ -27,13 +27,25 @@ RUN curl -fsSL \
       -o /usr/local/bin/act_runner \
     && chmod +x /usr/local/bin/act_runner
 
-# ── Upgrade Node.js ──────────────────────────────────────────────────────────
-# GameCI base image includes Node.js but it may be old. Upgrade to LTS.
-# This ensures ioUtil.rm and crypto.randomUUID work in GitHub Actions.
+# ── Upgrade Node.js + install Docker CLI ────────────────────────────────────
+# Node.js: GameCI base image may ship an old version; upgrade to LTS so that
+#   ioUtil.rm and crypto.randomUUID work in GitHub Actions runners.
+# Docker CLI: required by game-ci/unity-activate@v2 to spin up the activation
+#   container. The host socket is mounted at runtime; only the CLI is needed here.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      curl gnupg \
+      curl gnupg ca-certificates \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
+    && install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+         -o /etc/apt/keyrings/docker.asc \
+    && chmod a+r /etc/apt/keyrings/docker.asc \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
+         https://download.docker.com/linux/ubuntu \
+         $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+         > /etc/apt/sources.list.d/docker.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends docker-ce-cli \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Runtime setup ────────────────────────────────────────────────────────────

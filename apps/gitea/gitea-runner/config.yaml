@@ -1,0 +1,22 @@
+# act_runner configuration for Gitea
+
+log:
+  level: info
+
+runner:
+  file: /data/.runner
+  capacity: 1
+  timeout: 3h
+  insecure: false
+  fetch_timeout: 5s
+  fetch_interval: 2s
+
+cache:
+  enabled: false
+
+container:
+  docker_host: "unix:///var/run/docker.sock"
+  workdir_parent: /workspace
+
+host:
+  workdir_parent: /workspace

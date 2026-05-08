@@ -22,18 +22,6 @@ if [ -z "${UNITY_PATH:-}" ]; then
   fi
 fi
 
-# ── Restore Unity license ────────────────────────────────────────────────────
-# The .ulf is stored on the /data volume (alongside .runner) so it survives
-# container restarts and rebuilds without needing a workflow step.
-mkdir -p ~/.config/unity3d ~/.local/share/unity3d ~/.cache/unity3d
-if [ -f /data/Unity_lic.ulf ]; then
-  cp /data/Unity_lic.ulf ~/.config/unity3d/Unity_lic.ulf
-  echo "Unity license restored from /data/Unity_lic.ulf"
-else
-  echo "WARNING: No Unity license found at /data/Unity_lic.ulf" >&2
-  echo "         Run through SETUP.md Step 2 to activate and place the .ulf file." >&2
-fi
-
 # ── Validate required variables ──────────────────────────────────────────────
 if [ -z "${GITEA_INSTANCE_URL:-}" ]; then
   echo "ERROR: GITEA_INSTANCE_URL is not set." >&2

@@ -17,6 +17,8 @@ services:
       # Persists the .runner registration file across container restarts.
       # Delete this volume to force re-registration (e.g. after a token reset).
       - runner-data:/data
+      # Required for game-ci/unity-activate to spin up Docker containers for license activation.
+      - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
     networks:
       - main-network

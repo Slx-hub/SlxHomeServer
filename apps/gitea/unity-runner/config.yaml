@@ -24,11 +24,10 @@ cache:
   enabled: false
 
 container:
-  # "-" disables Docker execution entirely.
-  # Jobs run directly inside this container (the "host" from act_runner's perspective).
-  # Do NOT mount /var/run/docker.sock — it is not needed and would be a security risk.
-  docker_host: "-"
-  network: ""
+  # Use the host Docker socket so that actions like game-ci/unity-test-runner can
+  # spawn their own containers (Docker-in-Docker via socket passthrough).
+  docker_host: "unix:///var/run/docker.sock"
+  # Do not restrict to a specific network — let Docker actions manage their own networking.
   workdir_parent: /workspace
 
 host:
