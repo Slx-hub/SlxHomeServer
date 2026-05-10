@@ -110,6 +110,11 @@ git.slakxs.de {
 
     import cookie
 
+    # API endpoints bypass auth
+    handle /api* {
+        reverse_proxy gitea:3000
+    }
+
     handle {
         forward_auth auth:49999 {
             uri /verify?role=dev
