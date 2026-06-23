@@ -12,16 +12,18 @@ services:
     volumes:
       # Certbot's working directory
       - certbot_data:/etc/letsencrypt
-      # Mount renewal hook for syncing certs to reverse-proxy
-      - ./post-renewal.sh:/etc/letsencrypt/renewal-hooks/post/copy-certs.sh:ro
+      # Mount post-renewal hook for copying certs and restarting reverse-proxy
+      - ./post-renewal.sh:/etc/letsencrypt/renewal-hooks/post/restart-and-copy.sh:ro
       # Local bind mount to reverse-proxy certs directory
       - /home/slx/SlxHomeServer/platform/reverse-proxy/certs/certbot:/mnt/certs
+      # Mount docker socket for restarting reverse-proxy after renewal
+      - /var/run/docker.sock:/var/run/docker.sock
     env_file:
       - ../../.env
     networks:
       - main-network
-    # Run certificate renewal and check every 12 hours
-    command: renew --authenticator dns-porkbun --post-hook "/bin/sh /etc/letsencrypt/renewal-hooks/post/copy-certs.sh" -q
+    # Entrypoint script handles initial cert generation and renewal loop
+    # Caddy proxies ACME challenges to port 8080 during generation and renewal
 
 volumes:
   certbot_data:

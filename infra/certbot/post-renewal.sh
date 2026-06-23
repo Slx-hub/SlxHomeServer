@@ -1,6 +1,5 @@
 #!/bin/sh
-# Post-renewal hook: Copy all cert files flat to reverse-proxy
-# This script runs after Certbot successfully renews certificates
+# Post-renewal hook: Copy all cert files flat to reverse-proxy and restart it
 
 SOURCE_DIR="/etc/letsencrypt"
 DEST_DIR="/mnt/certs"
@@ -27,6 +26,16 @@ if [ -d "$SOURCE_DIR" ]; then
     echo "[$(date '+%Y-%m-%d %H:%M:%S')]   Cert: $(basename $LATEST_CERT)"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')]   Key:  $(basename $LATEST_KEY)"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')]   Chain: $(basename $LATEST_CHAIN)"
+    
+    # Restart reverse-proxy to pick up new certs
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Restarting reverse-proxy..."
+    if command -v docker &> /dev/null; then
+        docker start reverse-proxy 2>/dev/null || echo "Could not restart reverse-proxy"
+        sleep 2
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Reverse-proxy restarted"
+    else
+        echo "WARNING: docker not found in PATH, cannot restart reverse-proxy"
+    fi
 else
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: Source directory not found: $SOURCE_DIR" >&2
     exit 1

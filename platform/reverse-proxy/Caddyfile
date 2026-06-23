@@ -10,6 +10,16 @@
     }
 }
 
+# HTTP-only block for ACME challenge validation
+# Let's Encrypt validates HTTP (not HTTPS) to prove domain ownership
+# Caddy proxies challenges to certbot on port 8080 (internal container port)
+http:// {
+    handle /.well-known/acme-challenge/* {
+        reverse_proxy certbot:8080
+    }
+    # Redirect all other HTTP traffic to HTTPS
+    redir https://{host}{uri} 301
+}
 
 # Redirect www.slakxs.de to slakxs.de
 www.slakxs.de {

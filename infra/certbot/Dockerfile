@@ -1,10 +1,10 @@
 FROM certbot/certbot:latest
 
-# Install the Porkbun DNS plugin for automated ACME challenges
-RUN pip install certbot-dns-porkbun
-
 # Create renewal hooks directory
 RUN mkdir -p /etc/letsencrypt/renewal-hooks/post
 
-ENTRYPOINT ["certbot"]
-CMD ["--help"]
+# Copy and use the renewal loop entrypoint
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
