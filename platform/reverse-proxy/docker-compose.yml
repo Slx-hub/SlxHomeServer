@@ -1,6 +1,7 @@
 services:
   reverse-proxy:
     image: caddy:2-alpine
+    container_name: reverse-proxy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]

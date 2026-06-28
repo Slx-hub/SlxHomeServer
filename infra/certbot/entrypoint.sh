@@ -7,7 +7,7 @@
 set -e
 
 RENEWAL_INTERVAL=86400  # 24 hours in seconds
-DOMAINS="-d slakxs.de -d git.slakxs.de"
+DOMAINS="-d slakxs.de -d www.slakxs.de -d git.slakxs.de -d ntfy.slakxs.de -d monitor.slakxs.de -d stoat.slakxs.de -d jelly.slakxs.de"
 EMAIL="${CERTBOT_EMAIL:-admin@slakxs.de}"
 LIVE_DIR="/etc/letsencrypt/live"
 
@@ -40,7 +40,7 @@ while true; do
         --non-interactive \
         --agree-tos \
         --http-01-port 8080 \
-        --post-hook "/bin/sh /etc/letsencrypt/renewal-hooks/post/restart-and-copy.sh" \
+        --deploy-hook "/bin/sh /etc/letsencrypt/renewal-hooks/post/restart-and-copy.sh" \
         -q || true
     
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Renewal check complete."

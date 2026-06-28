@@ -23,14 +23,14 @@ if [ -d "$SOURCE_DIR" ]; then
     LATEST_CHAIN=$(ls -1t "$DEST_DIR"/fullchain*.pem 2>/dev/null | head -1)
     
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Sync complete. Latest cert files:"
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')]   Cert: $(basename $LATEST_CERT)"
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')]   Key:  $(basename $LATEST_KEY)"
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')]   Chain: $(basename $LATEST_CHAIN)"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')]   Cert: ${LATEST_CERT:+$(basename "$LATEST_CERT")}"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')]   Key:  ${LATEST_KEY:+$(basename "$LATEST_KEY")}"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')]   Chain: ${LATEST_CHAIN:+$(basename "$LATEST_CHAIN")}"
     
     # Restart reverse-proxy to pick up new certs
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Restarting reverse-proxy..."
     if command -v docker &> /dev/null; then
-        docker start reverse-proxy 2>/dev/null || echo "Could not restart reverse-proxy"
+        docker restart reverse-proxy 2>/dev/null || echo "Could not restart reverse-proxy"
         sleep 2
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] Reverse-proxy restarted"
     else

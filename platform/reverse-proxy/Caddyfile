@@ -1,6 +1,13 @@
 # Wildcard certificate covers *.slakxs.de and slakxs.de
 # All blocks share the same cert
 
+{
+    # Disable Caddy's automatic HTTP→HTTPS redirects (308).
+    # We manage our own redirect in the http:// block below so that
+    # ACME challenge requests can be proxied to certbot before redirecting.
+    auto_https disable_redirects
+}
+
 # Shared snippet — import this in any block that needs a login endpoint.
 # The auth cookie is set for .slakxs.de so logging in from any subdomain
 # grants access across the whole domain.
@@ -18,7 +25,9 @@ http:// {
         reverse_proxy certbot:8080
     }
     # Redirect all other HTTP traffic to HTTPS
-    redir https://{host}{uri} 301
+    handle {
+        redir https://{host}{uri} 301
+    }
 }
 
 # Redirect www.slakxs.de to slakxs.de

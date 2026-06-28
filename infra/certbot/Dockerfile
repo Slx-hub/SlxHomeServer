@@ -1,5 +1,8 @@
 FROM certbot/certbot:latest
 
+# Install docker CLI for post-renewal Caddy restart
+RUN apk add --no-cache docker-cli
+
 # Create renewal hooks directory
 RUN mkdir -p /etc/letsencrypt/renewal-hooks/post
 
