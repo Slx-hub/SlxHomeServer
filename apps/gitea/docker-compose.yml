@@ -16,6 +16,7 @@ services:
       - GITEA__server__SSH_DOMAIN=git.slakxs.de
       - GITEA__server__SSH_PORT=2222
       - GITEA__server__SSH_LISTEN_PORT=22
+      - GITEA__server__LFS_ALLOW_PURE_SSH=true
     ports:
       # Git over SSH — host 2222 → container 22.
       # Host port 22 is kept for server administration.
