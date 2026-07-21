@@ -73,7 +73,7 @@ export class TripMap {
 
         const baseLayers = makeBaseLayers();
         const overlays = makeOverlays();
-        baseLayers['Satellite'].addTo(this.map);   // default basemap
+        baseLayers['Voyager Dim'].addTo(this.map);   // default basemap
         L.control.layers(baseLayers, overlays, { collapsed: true }).addTo(this.map);
 
         // locId -> { marker, loc, visible }
