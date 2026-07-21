@@ -5,10 +5,44 @@
  */
 import { DEFAULT_CATEGORIES, DEFAULT_RATINGS } from './config.js';
 
-const TILE_URL = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
-const TILE_ATTR =
-    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors ' +
-    '&copy; <a href="https://carto.com/attributions">CARTO</a>';
+const OSM_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+const CARTO_ATTR = OSM_ATTR + ' &copy; <a href="https://carto.com/attributions">CARTO</a>';
+
+/** Selectable basemaps. Carto = styled streets (no satellite); Esri = imagery. */
+function makeBaseLayers() {
+    const carto = (style) => L.tileLayer(
+        `https://{s}.basemaps.cartocdn.com/rastertiles/${style}/{z}/{x}/{y}{r}.png`,
+        { attribution: CARTO_ATTR, subdomains: 'abcd', maxZoom: 20 },
+    );
+    return {
+        'Voyager': carto('voyager'),
+        'Light': carto('light_all'),
+        'Dark': carto('dark_all'),
+        'Satellite': L.tileLayer(
+            'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            { attribution: 'Imagery &copy; <a href="https://www.esri.com/">Esri</a>', maxZoom: 19 },
+        ),
+    };
+}
+
+/**
+ * Transparent overlays drawn on top of the basemap. OpenRailwayMap renders
+ * every railway from OSM data — including high-speed lines like the Shinkansen.
+ */
+function makeOverlays() {
+    return {
+        '🚄 Railways': L.tileLayer(
+            'https://{s}.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png',
+            {
+                attribution: 'Rail data &copy; <a href="https://www.openrailwaymap.org/">OpenRailwayMap</a>',
+                subdomains: 'abc',
+                minZoom: 2,
+                maxZoom: 19,
+                opacity: 0.85,
+            },
+        ),
+    };
+}
 
 function esc(s) {
     return String(s ?? '').replace(/[&<>"']/g, (c) => (
@@ -33,11 +67,11 @@ export class TripMap {
         this.categories = DEFAULT_CATEGORIES;
         this.ratings = DEFAULT_RATINGS;
         this.map = L.map(elId, { zoomControl: true, worldCopyJump: true });
-        L.tileLayer(TILE_URL, {
-            attribution: TILE_ATTR,
-            subdomains: 'abcd',
-            maxZoom: 20,
-        }).addTo(this.map);
+
+        const baseLayers = makeBaseLayers();
+        const overlays = makeOverlays();
+        baseLayers['Voyager'].addTo(this.map);   // default basemap
+        L.control.layers(baseLayers, overlays, { collapsed: true }).addTo(this.map);
 
         // locId -> { marker, loc, visible }
         this._entries = new Map();

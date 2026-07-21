@@ -21,27 +21,22 @@
 <body>
     <div id="map"></div>
 
-    <!-- Top-left: trip switcher -->
+    <!-- Top-left: trip switcher + expandable filters, one panel -->
     <div class="ui ui-topleft panel">
-        <span class="brand">🗺️</span>
-        <div class="trip-select-wrap">
-            <select id="trip-select" aria-label="Select trip"></select>
-            <div id="trip-title" class="trip-title">Loading…</div>
+        <div class="topleft-row">
+            <span class="brand">🗺️</span>
+            <div class="trip-select-wrap">
+                <select id="trip-select" aria-label="Select trip"></select>
+                <div id="trip-title" class="trip-title">Loading…</div>
+            </div>
+            <button id="btn-fit" class="icon-btn" title="Fit all pins">⤢</button>
+            <button id="filter-toggle" class="icon-btn" title="Filters"
+                    aria-controls="filter-panel" aria-expanded="false">☰</button>
         </div>
-        <button id="btn-fit" class="icon-btn" title="Fit all pins">⤢</button>
+        <div id="filter-panel" class="filter-panel" hidden>
+            <div id="filter-panel-body"></div>
+        </div>
     </div>
-
-    <!-- Mobile filter toggle -->
-    <button id="filter-toggle" class="fab" title="Filters">☰</button>
-
-    <!-- Filter panel -->
-    <aside id="filter-panel" class="panel filter-panel">
-        <div class="filter-panel-head">
-            <strong>Filters</strong>
-            <button id="filter-close" class="icon-btn" title="Close">✕</button>
-        </div>
-        <div id="filter-panel-body"></div>
-    </aside>
 
     <div id="toast" class="toast"></div>
 

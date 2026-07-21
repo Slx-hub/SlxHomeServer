@@ -133,11 +133,12 @@ async function init() {
 document.getElementById('btn-fit').addEventListener('click', () => map.fitAll());
 
 const filterPanel = document.getElementById('filter-panel');
-document.getElementById('filter-toggle').addEventListener('click', () => {
-    filterPanel.classList.toggle('open');
-});
-document.getElementById('filter-close').addEventListener('click', () => {
-    filterPanel.classList.remove('open');
+const filterToggle = document.getElementById('filter-toggle');
+filterToggle.addEventListener('click', () => {
+    const open = filterPanel.hidden;            // about to open?
+    filterPanel.hidden = !open;
+    filterToggle.classList.toggle('on', open);
+    filterToggle.setAttribute('aria-expanded', String(open));
 });
 
 init();
