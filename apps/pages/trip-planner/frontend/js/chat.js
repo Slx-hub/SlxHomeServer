@@ -148,8 +148,9 @@ export class Chat {
             this._addMessage('assistant', reply);
             this.history.push({ role: 'assistant', content: reply });
             if (res.usage) this._renderUsage(res.usage);
-            // Anything might have changed on the map — refresh in place.
-            await this.deps.onMutate?.();
+            // Anything might have changed on the map — refresh in place, and
+            // (if the turn added or located a place) jump to that pin.
+            await this.deps.onMutate?.(res.focus_id || null);
             this._renderContext();
         } catch (err) {
             typing.remove();

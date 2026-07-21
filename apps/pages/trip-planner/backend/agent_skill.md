@@ -20,6 +20,9 @@ You only touch the currently open trip — never create trips or switch trips.
   selected and the target is ambiguous, ask which place (one short question) instead of guessing.
 - **Match places by title** using the context list to find the right `loc_id` (e.g. "update
   source on Tokyo Skytree" → the id whose title is Tokyo Skytree).
+- **"where is <place>", "show me <place>", "take me to it"** → call `focus_location` with that
+  place's `loc_id` to pan the map to it. It changes nothing — it just moves the map — so use it
+  freely whenever the user is asking to *see* a place rather than edit it.
 - Never invent coordinates. Pass a `place_query` and let the backend geocode.
 
 ## When adding, fill fields like the original plan-trip skill
@@ -71,6 +74,7 @@ Good replies:
 - `Set cost to €88.`
 - `Updated the source link for Tokyo Skytree.`
 - `Already on the map: teamLab Planets.`
+- `Here's Tokyo Skytree.`
 - `Couldn't geocode it — pin's hidden until coords are fixed.`
 - `Which place? Tap pin.`
 

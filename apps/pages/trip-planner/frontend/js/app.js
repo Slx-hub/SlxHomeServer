@@ -50,16 +50,22 @@ const chat = new Chat({
     clearSelected: () => map.clearSelected(),
     showToast,
     // The assistant may have added/edited/removed a place: reload data and
-    // re-render without moving the map, then refresh the filter chips.
-    onMutate: () => currentTrip && refreshTrip(currentTrip),
+    // re-render without moving the map, then refresh the filter chips. focusId
+    // is a pin to jump to (a freshly added place, or one it was asked to show).
+    onMutate: (focusId) => currentTrip && refreshTrip(currentTrip, focusId),
 });
 
 /** Re-fetch the open trip and re-render in place (used after chat edits). */
-async function refreshTrip(name) {
+async function refreshTrip(name, focusId = null) {
     const trip = await api.getTrip(name);
     map.render(trip, { preserveView: true });
     filters.mount(map.locations(), { reset: false, categories: trip.categories, ratings: trip.ratings });
     map.setFilter(filters.predicate());
+    // Jump to and open the pin the chat pointed at. openPin force-shows it even
+    // if its type filter is off, and fails only when it has no coordinates.
+    if (focusId && !map.openPin(focusId)) {
+        showToast("That place has no coordinates yet, so it can't be shown on the map", 'ok', 4000);
+    }
 }
 
 async function loadTrip(name) {
@@ -114,6 +120,12 @@ async function init() {
         await loadTrip(target);
     } catch (err) {
         showToast(`Failed to load trip: ${err.message}`, 'error', 5000);
+        return;
+    }
+
+    const pinId = new URLSearchParams(window.location.search).get('pin');
+    if (pinId && !map.openPin(pinId)) {
+        showToast(`Pin "${pinId}" not found`, 'error', 4000);
     }
 }
 

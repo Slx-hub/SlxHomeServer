@@ -484,6 +484,22 @@ def _tool_delete_location(name: str, args: dict) -> dict:
     return {"status": "deleted", "id": loc_id, "title": title}
 
 
+def _tool_focus_location(name: str, args: dict) -> dict:
+    """Read-only: ask the map to pan to and open an existing pin. Changes no
+    data — it just resolves the id so chat() can hand it back as focus_id."""
+    loc_id = (args.get("loc_id") or "").strip()
+    if not loc_id:
+        return {"error": "loc_id is required"}
+    data = _load_trip(name)
+    loc = next((l for l in data.get("locations", []) if l.get("id") == loc_id), None)
+    if not loc:
+        return {"error": f"no location with id '{loc_id}'"}
+    result = {"status": "focus", "id": loc_id, "title": loc.get("title")}
+    if loc.get("lat") is None or loc.get("lng") is None:
+        result["warning"] = "location has no coordinates; it can't be shown on the map yet"
+    return result
+
+
 def _upsert_taxonomy_entry(store_key: str, defaults: dict, name: str, args: dict) -> dict:
     """Shared create-or-edit logic for set_category/set_rating: creates a new
     key with label+emoji+color, or patches whichever of those fields are given
@@ -528,6 +544,7 @@ _TOOL_IMPL = {
     "delete_location": _tool_delete_location,
     "set_category": _tool_set_category,
     "set_rating": _tool_set_rating,
+    "focus_location": _tool_focus_location,
 }
 
 _TOOLS = [
@@ -684,6 +701,24 @@ _TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "focus_location",
+            "description": (
+                "Pan the map to an existing pin and open its card. Call this when "
+                "the user asks where a place is or to show/find/take them to one "
+                "(e.g. 'where is Tokyo Skytree', 'show me teamLab'). Read-only — it "
+                "changes no data. Match the place by title to its id from the "
+                "context block; use the selected activity's id for 'this'/'here'/'it'."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"loc_id": {"type": "string"}},
+                "required": ["loc_id"],
+            },
+        },
+    },
 ]
 
 
@@ -813,6 +848,12 @@ def chat(req: ChatRequest):
 
     model_calls = 0
     reply = ""
+    # The pin the map should jump to afterwards: the last place the turn added
+    # (or matched as a duplicate), or one the model explicitly asked to show via
+    # focus_location ("where is X"). Lets the frontend surface that pin instead
+    # of leaving it off-screen. Plain edits/deletes don't set it, so those don't
+    # yank the map around.
+    focus_id = None
     try:
         for _ in range(MAX_TOOL_ROUNDS):
             resp = _gemini_chat(messages)
@@ -841,6 +882,10 @@ def chat(req: ChatRequest):
                     result = {"error": e.detail}
                 except Exception as e:  # keep the loop alive; let the model recover/apologise
                     result = {"error": str(e)}
+                if (isinstance(result, dict)
+                        and ((fn == "add_location" and result.get("status") in ("added", "duplicate"))
+                             or (fn == "focus_location" and result.get("status") == "focus"))):
+                    focus_id = result.get("id") or focus_id
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.get("id"),
@@ -851,9 +896,24 @@ def chat(req: ChatRequest):
     finally:
         _bump_usage(model_calls)
 
-    return {"reply": reply or "Done.", "usage": _usage_snapshot()}
+    return {"reply": reply or "Done.", "usage": _usage_snapshot(), "focus_id": focus_id}
 
 
 # ── Frontend ─────────────────────────────────────────────────────────────
 # Mounted last so the /api/* routes above take precedence.
-app.mount("/", StaticFiles(directory="/app/static", html=True), name="static")
+_static = StaticFiles(directory="/app/static", html=True)
+
+
+@app.middleware("http")
+async def _no_cache_static(request, call_next):
+    """Force revalidation on every static asset load. This is a low-traffic
+    personal app that gets edited and redeployed often; without this, browsers
+    happily serve a stale index.html/app.js from heuristic cache after a
+    redeploy (ETag/Last-Modified alone don't stop that)."""
+    response = await call_next(request)
+    if not request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
+app.mount("/", _static, name="static")
