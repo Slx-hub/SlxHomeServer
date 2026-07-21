@@ -1,0 +1,35 @@
+services:
+  trip-planner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    # Run as slx (1000:1000) so JSON files written by the container and by the
+    # plan-trip skill (which runs locally as slx) share ownership cleanly.
+    user: "1000:1000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:50004/api/healthz', timeout=3).getcode()==200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    ports:
+      - "50004:50004"
+    volumes:
+      # Per-trip JSON files. The plan-trip skill writes here too.
+      - /data/trip-planner:/app/data
+    environment:
+      DATA_DIR: /app/data
+      DEFAULT_TRIP: japan
+      # Chat assistant (Gemini). Put the key in a .env file next to this
+      # compose file (see .env.example); the chat panel stays hidden if unset.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash}
+      CHAT_DAILY_LIMIT: ${CHAT_DAILY_LIMIT:-1500}
+    networks:
+      - main-network
+
+networks:
+  main-network:
+    external: true
+    name: main-network

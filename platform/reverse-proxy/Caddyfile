@@ -72,6 +72,16 @@ slakxs.de {
         reverse_proxy container-manager:50001
     }
 
+    # Trip Planner — interactive travel map (guest+). The frontend sets its
+    # <base> dynamically so relative assets/API resolve under /trips.
+    handle /trips* {
+        forward_auth auth:49999 {
+            uri /verify?role=guest
+        }
+        uri strip_prefix /trips
+        reverse_proxy trip-planner:50004
+    }
+
     # Catch-all for any other paths
     handle {
         error 404

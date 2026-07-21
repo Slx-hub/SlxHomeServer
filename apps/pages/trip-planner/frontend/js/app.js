@@ -1,0 +1,131 @@
+/**
+ * App entrypoint: load the trip list, open the requested (or default) trip,
+ * and wire the trip switcher, filter panel, and mobile controls together.
+ */
+import { Api } from './api.js';
+import { TripMap } from './map.js';
+import { Filters } from './filters.js';
+import { Chat } from './chat.js';
+
+const api = new Api();
+
+function esc(s) {
+    return String(s ?? '').replace(/[&<>"']/g, (c) => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
+}
+
+const toastEl = document.getElementById('toast');
+let toastTimer = null;
+function showToast(msg, kind = 'ok', ms = 2200) {
+    toastEl.textContent = msg;
+    toastEl.className = `toast show ${kind}`;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { toastEl.className = 'toast'; }, ms);
+}
+
+let currentTrip = null;
+
+const filters = new Filters(document.getElementById('filter-panel-body'), {
+    onChange: () => map.setFilter(filters.predicate()),
+});
+
+const map = new TripMap('map', {
+    api,
+    getTripName: () => currentTrip,
+    showToast,
+    // A rating/delete changed the data: refresh chip counts, keep toggles.
+    onChange: () => {
+        filters.mount(map.locations(), { reset: false });
+        map.setFilter(filters.predicate());
+    },
+    // A pin was opened — hand it to the chat as "selected activity" context.
+    onSelect: (loc) => chat.setSelected(loc),
+});
+
+const chat = new Chat({
+    api,
+    getTripName: () => currentTrip,
+    getSelected: () => map.getSelected(),
+    clearSelected: () => map.clearSelected(),
+    showToast,
+    // The assistant may have added/edited/removed a place: reload data and
+    // re-render without moving the map, then refresh the filter chips.
+    onMutate: () => currentTrip && refreshTrip(currentTrip),
+});
+
+/** Re-fetch the open trip and re-render in place (used after chat edits). */
+async function refreshTrip(name) {
+    const trip = await api.getTrip(name);
+    map.render(trip, { preserveView: true });
+    filters.mount(map.locations(), { reset: false, categories: trip.categories, ratings: trip.ratings });
+    map.setFilter(filters.predicate());
+}
+
+async function loadTrip(name) {
+    const trip = await api.getTrip(name);
+    currentTrip = name;
+    document.getElementById('trip-title').textContent = trip.title || name;
+    const select = document.getElementById('trip-select');
+    if (select.value !== name) select.value = name;
+
+    const url = new URL(window.location);
+    url.searchParams.set('trip', name);
+    history.replaceState(null, '', url);
+
+    map.render(trip);
+    filters.mount(trip.locations || [], { reset: true, categories: trip.categories, ratings: trip.ratings });
+    map.setFilter(filters.predicate());
+}
+
+async function init() {
+    let data;
+    try {
+        data = await api.listTrips();
+    } catch (err) {
+        showToast(`Failed to load trips: ${err.message}`, 'error', 6000);
+        return;
+    }
+
+    const select = document.getElementById('trip-select');
+    if (!data.trips.length) {
+        document.getElementById('trip-title').textContent = 'No trips yet';
+        select.innerHTML = '<option>— none —</option>';
+        showToast('No trips found. Use the plan-trip skill to create one.', 'ok', 6000);
+        map.render({ locations: [] });
+        filters.mount([], { reset: true });
+        return;
+    }
+
+    select.innerHTML = data.trips
+        .map((t) => `<option value="${esc(t.name)}">${esc(t.title)}</option>`)
+        .join('');
+    select.addEventListener('change', () => {
+        loadTrip(select.value).catch((e) => showToast(e.message, 'error', 5000));
+    });
+
+    const requested = new URLSearchParams(window.location.search).get('trip');
+    const names = data.trips.map((t) => t.name);
+    const target = (requested && names.includes(requested)) ? requested
+        : (names.includes(data.default)) ? data.default
+        : names[0];
+
+    try {
+        await loadTrip(target);
+    } catch (err) {
+        showToast(`Failed to load trip: ${err.message}`, 'error', 5000);
+    }
+}
+
+// ── Static controls ──────────────────────────────────────────────────────
+document.getElementById('btn-fit').addEventListener('click', () => map.fitAll());
+
+const filterPanel = document.getElementById('filter-panel');
+document.getElementById('filter-toggle').addEventListener('click', () => {
+    filterPanel.classList.toggle('open');
+});
+document.getElementById('filter-close').addEventListener('click', () => {
+    filterPanel.classList.remove('open');
+});
+
+init();
