@@ -134,11 +134,13 @@ document.getElementById('btn-fit').addEventListener('click', () => map.fitAll())
 
 const filterPanel = document.getElementById('filter-panel');
 const filterToggle = document.getElementById('filter-toggle');
-filterToggle.addEventListener('click', () => {
-    const open = filterPanel.hidden;            // about to open?
+function setFiltersOpen(open) {
     filterPanel.hidden = !open;
     filterToggle.classList.toggle('on', open);
     filterToggle.setAttribute('aria-expanded', String(open));
-});
+}
+filterToggle.addEventListener('click', () => setFiltersOpen(filterPanel.hidden));
+// Expanded by default on large screens; phones stay collapsed to save space.
+if (window.matchMedia('(min-width: 721px)').matches) setFiltersOpen(true);
 
 init();

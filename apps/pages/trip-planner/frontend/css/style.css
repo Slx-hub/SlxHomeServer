@@ -28,6 +28,10 @@ body {
     inset: 0;
     z-index: 0;
 }
+/* "Voyager Dim" basemap: dim + slightly desaturate the Voyager tiles so the
+   map reads softer than default without going near-black like Dark. Tune the
+   brightness (0.6 darker … 0.85 subtler) to taste. */
+.tiles-dim { filter: brightness(0.7) contrast(1.1) saturate(1.1); }
 
 /* ── Floating panels ──────────────────────────────────────────────────── */
 .panel {

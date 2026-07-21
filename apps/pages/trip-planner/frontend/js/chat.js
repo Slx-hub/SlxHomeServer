@@ -73,7 +73,13 @@ export class Chat {
     /** Show/hide the launcher based on whether the backend has a key. */
     setConfigured(ok) {
         this.launcher.hidden = !ok || !this.panel.hidden;
-        if (!ok) this.panel.hidden = true;
+        if (!ok) { this.panel.hidden = true; return; }
+        // Open the panel by default on large screens (once), so the assistant
+        // is visible without a click; phones keep the compact launcher.
+        if (!this._autoOpened && window.matchMedia('(min-width: 721px)').matches) {
+            this._autoOpened = true;
+            this._toggle(true);
+        }
     }
 
     // ── Selection context ────────────────────────────────────────────────

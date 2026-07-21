@@ -10,12 +10,15 @@ const CARTO_ATTR = OSM_ATTR + ' &copy; <a href="https://carto.com/attributions">
 
 /** Selectable basemaps. Carto = styled streets (no satellite); Esri = imagery. */
 function makeBaseLayers() {
-    const carto = (style) => L.tileLayer(
+    const carto = (style, opts = {}) => L.tileLayer(
         `https://{s}.basemaps.cartocdn.com/rastertiles/${style}/{z}/{x}/{y}{r}.png`,
-        { attribution: CARTO_ATTR, subdomains: 'abcd', maxZoom: 20 },
+        { attribution: CARTO_ATTR, subdomains: 'abcd', maxZoom: 20, ...opts },
     );
     return {
         'Voyager': carto('voyager'),
+        // Same Voyager tiles, softened via a CSS filter (see .tiles-dim) — a
+        // muted dusk tone between bright Voyager and the near-black Dark.
+        'Voyager Dim': carto('voyager', { className: 'tiles-dim' }),
         'Light': carto('light_all'),
         'Dark': carto('dark_all'),
         'Satellite': L.tileLayer(
@@ -70,7 +73,7 @@ export class TripMap {
 
         const baseLayers = makeBaseLayers();
         const overlays = makeOverlays();
-        baseLayers['Voyager'].addTo(this.map);   // default basemap
+        baseLayers['Satellite'].addTo(this.map);   // default basemap
         L.control.layers(baseLayers, overlays, { collapsed: true }).addTo(this.map);
 
         // locId -> { marker, loc, visible }
