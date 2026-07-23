@@ -231,6 +231,9 @@ export class TripMap {
                 `</div>` +
                 `<h3 class="pop-title">${esc(loc.title)}</h3>` +
                 (loc.description ? `<p class="pop-desc">${esc(loc.description)}</p>` : '') +
+                (loc.geo_precision === 'approximate'
+                    ? `<p class="pop-approx" title="This pin was placed at neighborhood level, not the exact address. Ask the assistant to refine it with a street address.">📍 Approximate location — neighborhood only</p>`
+                    : '') +
                 `<div class="pop-links">` +
                     `<a class="pop-link gmaps" href="${esc(gmapsUrl(loc))}" target="_blank" rel="noopener">🧭 Google Maps</a>` +
                     (loc.source_url

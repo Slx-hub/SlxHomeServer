@@ -41,7 +41,8 @@ Each location object (the contract the web app reads):
   "rating": null,
   "notes": "",
   "tags": ["indoor", "rainy-day"],
-  "added_at": "2026-07-21"
+  "added_at": "2026-07-21",
+  "geo_precision": "exact"
 }
 ```
 
@@ -84,25 +85,61 @@ the rate, do a quick lookup, but don't block on precision.
       - **cost** — admission/price if stated, **always converted to euro** (see below);
         else `""`.
       - **description** — one or two sentences on what it is / why it's cool.
-      - a **place string** to geocode — the most specific name + city/region you can, e.g.
-        `"teamLab Planets, Toyosu, Tokyo"`.
+      - the **street address** — the most precise the page gives (house/block number, street
+        or neighborhood, ward/district, city, postal code, country). This — *not* the venue
+        name — is what you geocode. Also note the **neighborhood/ward** separately (e.g.
+        `Ariake, Koto` / `Akasaka, Minato`); it's the key fallback signal.
+      - any **coordinates the page itself provides** — many map-based pages embed a lat/lng in
+        a map link (`?q=35.63,139.79`, `/@35.63,139.79`), a `geo:` URI, or JSON. If present and
+        plausible, **use them directly** and skip geocoding — they beat anything Nominatim gives.
       - optional **tags** — e.g. `indoor`/`outdoor`, `rainy-day`, `kid-friendly`, `sunset`.
+
+      **If the fetch comes back empty, blocked, or without a real address** — booking.com,
+      Airbnb, Google Maps share links, and many hotel sites return a bot wall or a JS shell with
+      *no* usable text. **Do not proceed to geocode a name you guessed from the URL slug** — that
+      is exactly how pins land on the wrong spot. Instead `WebSearch` for the place's real address
+      (e.g. `"<hotel name> address"`), which reliably surfaces the street + ward even when the
+      page is blocked, and geocode *that*. For short share links (`booking.com/Share-…`,
+      `maps.app.goo.gl/…`) that WebFetch can't follow, resolve the real destination first:
+      `curl -sIL "<url>" | grep -i '^location:'`, then fetch/search the resolved page.
    b. **Geocode** with Nominatim (free, keyless). Respect its policy: send a User-Agent and
-      keep to ~1 request/second.
+      keep to ~1 request/second. Query the **address**, most-specific first:
       ```bash
       curl -s -A "SlxTripPlanner/1.0 (slakxs.de)" \
-        "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=<url-encoded place string>"
+        "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=<url-encoded address>"
       ```
-      Take `lat`/`lon` from the first result. If it returns nothing, retry with a broader query
-      (drop the venue, keep city + country). If it still fails, add the location with
-      `lat`/`lng` set to `null`, and flag it in your summary — the app won't pin it until the
-      coordinates are fixed.
+      **Nominatim (OSM) does not index most venues by name** — hotels, restaurants, and shops
+      usually return nothing or the wrong thing, and romanized Japanese/Asian *street* addresses
+      often fail too. So geocode a **place**, not a business name, and fall back one address level
+      at a time, keeping the **most specific result that resolves**:
+      `full street address` → `neighborhood/ward + city + country` → `district + city + country`.
+      **Stop before bare city/region** — do not fall all the way back to just `"Tokyo"` / a
+      country. A city-or-larger query returns a single administrative *centroid* that looks
+      precise (7 decimals) but is wrong for a specific venue, and every unresolvable place in that
+      city collapses onto the identical point.
+
+      **Reject region-centroid results.** After each query, inspect the result before accepting
+      its `lat`/`lon`. Treat it as *not a real location* — and drop to the next fallback (or flag)
+      — if any of these hold:
+      - `class` is `boundary` and `type` is `administrative` **and** `place_rank <= 16`
+        (that's city-level or bigger; a neighborhood/`quarter` is ~20 and is fine as a coarse pin);
+      - the `boundingbox` spans more than ~0.5° in either dimension (a whole city/prefecture);
+      - the coordinates equal (to ~4 decimals) an existing pin in this file, or the known bad
+        Tokyo centroid `35.6768601, 139.7638947`.
+
+      If nothing resolves above city level, add the location with `lat`/`lng` set to `null` and
+      flag it in your summary — **a null, honestly-flagged pin is better than a confident wrong
+      one.** The app won't pin it until the coordinates are fixed.
    c. **google_maps_url** — prefer a named search for good navigation:
       `https://www.google.com/maps/search/?api=1&query=` + URL-encoded `"<title>, <city>"`.
       If you have no reliable name, fall back to `…?api=1&query=<lat>,<lng>`.
    d. Build a unique **id**: slug of the title; if it collides with an existing id, append
       `-2`, `-3`, …
    e. Set `rating: null`, `notes: ""`, `added_at` = today's date, `tags` as found.
+   f. Set **`geo_precision`**: `"exact"` when you pinned a specific address/building (or used
+      page-provided coordinates), or `"approximate"` when you could only resolve to a
+      neighborhood/ward. The map shows a badge on `"approximate"` pins so the user knows to
+      refine them. (Omit or `null` when the pin is unresolved / `lat` is `null`.)
 
 3. **Write the file back** as pretty JSON, UTF-8, **without escaping non-ASCII** (so `¥`, `ō`,
    etc. stay readable). Append new locations; leave existing ones untouched. Prefer writing via
@@ -110,12 +147,16 @@ the rate, do a quick lookup, but don't block on precision.
    structure stay valid, rather than hand-editing JSON.
 
 4. **Report** a short summary: which pins were added (title + category), any duplicates skipped,
-   and any that failed geocoding and need a manual coordinate. Give the user the link:
-   `https://slakxs.de/trips?trip=<slug>`.
+   and any that failed geocoding and need a manual coordinate. For each pin, say **how precise**
+   the coordinate is — exact (from the page or a resolved street address), approximate
+   (neighborhood/ward level), or unresolved (`null`) — so the user knows which pins to trust.
+   Give the user the link: `https://slakxs.de/trips?trip=<slug>`.
 
 ## Notes
 
 - The file is shared with the running container (both run as uid 1000), so your writes appear on
   the map on the next page load/refresh — no restart needed.
-- Never invent coordinates. If unsure, geocode or flag it.
+- Never invent coordinates, and never accept a city/region **centroid** as a venue's location
+  (see the region-centroid rejection in 2b). If unsure, geocode a more specific address, search
+  for the real address, or flag with `null`.
 - Keep descriptions tight and useful for trip planning; skip marketing fluff.

@@ -14,12 +14,14 @@ by a process-wide lock so concurrent PATCHes don't interleave.
 import datetime
 import ipaddress
 import json
+import logging
 import os
 import re
 import socket
 import threading
 import time
 import urllib.parse
+from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 from typing import Optional
 
@@ -111,6 +113,56 @@ try:
     _PACIFIC = ZoneInfo("America/Los_Angeles")
 except Exception:  # pragma: no cover - only if tzdata unavailable
     _PACIFIC = None
+
+
+# ── Assistant transcript log (rolling daily, keeps N days) ──────────────────
+# A human-readable trace of every chat turn: what we send to the model, what it
+# sends back, its thinking, each tool call + arguments, and each tool result —
+# the same shape Claude Code shows in its transcript. Rotates at local midnight
+# and keeps CHAT_LOG_KEEP_DAYS files total (today + the previous days), so the
+# log can't grow without bound. Defaults to /app/logs, which compose bind-mounts
+# to ./logs next to the app (git-ignored), so the transcript lands in the repo
+# tree without being committed.
+LOG_DIR = Path(os.getenv("CHAT_LOG_DIR", "/app/logs"))
+# "keeps N logs" — total files retained, so backupCount = N - 1 (current + N-1).
+CHAT_LOG_KEEP_DAYS = max(1, int(os.getenv("CHAT_LOG_KEEP_DAYS", "5")))
+CHAT_LOG_LEVEL = os.getenv("CHAT_LOG_LEVEL", "INFO").upper()
+
+
+def _build_chat_logger() -> logging.Logger:
+    logger = logging.getLogger("trip_planner.chat")
+    logger.setLevel(CHAT_LOG_LEVEL)
+    logger.propagate = False  # don't double-log through uvicorn's root handlers
+    if logger.handlers:  # idempotent — uvicorn reload can import this module twice
+        return logger
+    try:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        handler = TimedRotatingFileHandler(
+            LOG_DIR / "chat.log",
+            when="midnight",
+            backupCount=CHAT_LOG_KEEP_DAYS - 1,
+            encoding="utf-8",
+        )
+    except OSError:
+        # If the log dir isn't writable, fall back to stdout rather than 500ing
+        # every chat request — the assistant still works, we just lose the file.
+        handler = logging.StreamHandler()
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s  %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+    )
+    logger.addHandler(handler)
+    return logger
+
+
+chatlog = _build_chat_logger()
+
+
+def _short(value, limit: int = 800) -> str:
+    """Compact a value to a single loggable string, truncating long blobs so the
+    transcript stays readable and the file stays bounded."""
+    s = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+    s = s.replace("\n", " ⏎ ") if len(s) > limit else s
+    return s if len(s) <= limit else f"{s[:limit]}… (+{len(s) - limit} chars)"
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
@@ -303,8 +355,53 @@ def _is_public_url(url: str) -> bool:
     return True
 
 
-def _fetch_page(url: str) -> dict:
-    """Fetch a page and return {final_url, title, text}. Validates every redirect hop."""
+def _strip_query(url: str) -> str:
+    """Drop the query string and fragment, keeping scheme/host/path."""
+    try:
+        p = urllib.parse.urlparse(url)
+    except ValueError:
+        return url
+    return urllib.parse.urlunparse((p.scheme, p.netloc, p.path, "", "", ""))
+
+
+def _title_from_url(url: str) -> Optional[str]:
+    """Best-effort human venue name from a URL slug, for when the page itself is
+    blocked/empty. Booking.com and similar sites put the real name right in the
+    path (e.g. /hotel/jp/villa-fontaine-grand-tokyo-ariake.de.html), and a *name*
+    from a slug is safe to use — only guessing an *address* from one is unsafe.
+    Returns None when the slug carries no real name (short share codes, numeric
+    ids, bare hosts)."""
+    try:
+        path = urllib.parse.urlparse(url).path
+    except ValueError:
+        return None
+    seg = next((s for s in reversed(path.split("/")) if s), "")
+    if not seg:
+        return None
+    seg = seg.split(".", 1)[0].replace("_", "-")  # drop .de.html / .en-gb.html
+    words = [w for w in seg.split("-") if w]
+    slug = "-".join(words).lower()
+    if not words or slug.startswith("share") or len(slug) < 4:
+        return None
+    if sum(c.isalpha() for c in slug) < 4:  # numeric/id-only slug, not a name
+        return None
+    return " ".join(w.capitalize() for w in words)
+
+
+def _looks_blocked(title: str, text: str) -> bool:
+    """True if a page came back empty or as a bot-challenge / JS-only shell —
+    i.e. it carries no usable content to extract an address from."""
+    text = text or ""
+    if len(text) >= 400:
+        return False
+    blob = f"{title} {text}".lower()
+    markers = ("captcha", "challenge", "are you a robot", "enable javascript",
+               "access denied", "verify you are human", "aws-waf", "cf-chl")
+    return not text.strip() or any(m in blob for m in markers)
+
+
+def _fetch_once(url: str) -> dict:
+    """One fetch attempt → {final_url, title, text} or {error}. Validates every hop."""
     cur = url
     try:
         with httpx.Client(follow_redirects=False, timeout=15,
@@ -336,27 +433,277 @@ def _fetch_page(url: str) -> dict:
     return {"final_url": str(r.url), "title": title, "text": text[:6000]}
 
 
-def _geocode(query: str) -> Optional[dict]:
-    """Free/keyless geocoding via Nominatim. Returns {lat, lng} or None."""
-    query = (query or "").strip()
-    if not query:
+def _fetch_page(url: str) -> dict:
+    """Fetch a page. If it comes back empty or behind a bot/JS wall, retry once on
+    the clean canonical URL (query string + tracking params stripped) — many sites
+    (booking.com, etc.) serve real content there but a stub on the noisy link.
+    If it's still blocked, say so plainly so the caller asks the user rather than
+    inventing an address."""
+    res = _fetch_once(url)
+    if "error" in res:
+        return res
+    if _looks_blocked(res.get("title", ""), res.get("text", "")):
+        stripped = _strip_query(res.get("final_url") or url)
+        if stripped and stripped != (res.get("final_url") or url):
+            retry = _fetch_once(stripped)
+            if "error" not in retry and len(retry.get("text", "")) > len(res.get("text", "")):
+                res = retry
+    if _looks_blocked(res.get("title", ""), res.get("text", "")):
+        guess = _title_from_url(res.get("final_url") or url)
+        note = (
+            "This page returned no readable content (bot wall or JS-only page). The URL "
+            "slug still gives a reliable venue NAME but NOT a usable address — do not "
+            "guess coordinates from the name. Ask the user for the street address or "
+            "'lat, lng' (name the place so they know which one), then add/update the pin."
+        )
+        if guess:
+            res["suggested_title"] = guess
+            note += f' The venue name from the link is "{guess}" — use it as the title.'
+        res["note"] = note
+    return res
+
+
+def _is_region_centroid(hit: dict) -> bool:
+    """True if a Nominatim hit is a whole city/prefecture/country rather than a
+    specific place. Its coordinate is an administrative *centroid* that looks
+    precise but is wrong for a venue — and every unresolvable place in that city
+    collapses onto the identical point (the classic 'everything lands on Tokyo'
+    bug). A neighborhood ('quarter', place_rank ~20) is coarse but correct-area,
+    so it is NOT treated as a centroid."""
+    if hit.get("category") == "boundary" and hit.get("type") == "administrative":
+        try:
+            if int(hit.get("place_rank", 99)) <= 16:  # city-level or bigger
+                return True
+        except (ValueError, TypeError):
+            pass
+    bbox = hit.get("boundingbox")
+    if isinstance(bbox, list) and len(bbox) == 4:
+        try:
+            south, north, west, east = (float(x) for x in bbox)
+            if abs(north - south) > 0.5 or abs(east - west) > 0.5:  # ~55km+ span
+                return True
+        except (ValueError, TypeError):
+            pass
+    return False
+
+
+# The classic "everything lands on Tokyo" centroid — both Nominatim and Photon
+# return this exact point for a bare "Tokyo, Japan". Rejected on sight.
+_KNOWN_BAD_CENTROIDS = {(35.6768601, 139.7638947)}
+
+# Photon feature types (properties.type) that are a whole admin area, not a place:
+# their coordinate is a centroid. quarter/suburb/etc. are coarse-but-correct-area.
+_PHOTON_ADMIN_TYPES = {"city", "county", "state", "country", "region", "province", "continent"}
+_PHOTON_PRECISE_TYPES = {"house", "street"}
+
+# Google Maps Platform key (Places API). Optional — when set, Google becomes the
+# authoritative geocoder (see _geocode_google); when empty we stay fully keyless
+# on Nominatim + Photon. Get a key at https://console.cloud.google.com/ with the
+# "Places API (New)" enabled (needs a billing account, but the volume here is
+# well inside the free monthly credit).
+GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
+
+# Google Places "types" that denote an administrative area / neighborhood rather
+# than a specific venue. A hit tagged with one of these is coarse: it's flagged
+# approximate (never "precise"), and refused outright (→ None) when its viewport
+# is also region-sized (a bare city/prefecture/country centroid).
+_GOOGLE_ADMIN_TYPES = {
+    "country", "administrative_area_level_1", "administrative_area_level_2",
+    "administrative_area_level_3", "administrative_area_level_4",
+    "locality", "postal_code", "postal_town", "neighborhood",
+    "sublocality", "sublocality_level_1", "sublocality_level_2",
+    "sublocality_level_3", "sublocality_level_4", "sublocality_level_5",
+}
+
+_LATLNG_RE = re.compile(r"^\s*(-?\d{1,3}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)\s*$")
+
+
+def _parse_latlng(query: str) -> Optional[dict]:
+    """Accept a raw 'lat, lng' string directly — no geocoder needed, and no risk
+    of a service mis-parsing coordinates. Returns {lat, lng, precise} or None."""
+    m = _LATLNG_RE.match(query or "")
+    if not m:
+        return None
+    lat, lng = float(m.group(1)), float(m.group(2))
+    if -90 <= lat <= 90 and -180 <= lng <= 180:
+        return {"lat": lat, "lng": lng, "precise": True}
+    return None
+
+
+def _is_bad_centroid(lat: float, lng: float) -> bool:
+    return any(abs(lat - bl) < 1e-4 and abs(lng - bg) < 1e-4
+               for bl, bg in _KNOWN_BAD_CENTROIDS)
+
+
+def _geocode_google(query: str) -> Optional[dict]:
+    """Google Places Text Search (New) → {lat, lng, precise} or None.
+
+    Only runs when GOOGLE_MAPS_API_KEY is set. Unlike the OSM-based geocoders,
+    Google resolves businesses/POIs *by name* using the same index that powers
+    maps.google.com — so 'Villa Fontaine Grand Tokyo Ariake' lands on the exact
+    pin the user sees there, where Nominatim/Photon are off by a block or miss it
+    entirely. It handles plain street addresses just as well. A bare region
+    ('Tokyo, Japan') comes back as a large-viewport admin hit → we return None so
+    it stays an honest null instead of a confident-wrong centroid.
+
+    `precise` is False for a neighborhood/ward-scale hit (viewport a few km) so
+    the pin still gets flagged approximate; True for a specific venue/address."""
+    if not GOOGLE_MAPS_API_KEY:
         return None
     try:
-        with httpx.Client(timeout=15, headers={"User-Agent": _UA}) as client:
-            r = client.get(
-                "https://nominatim.openstreetmap.org/search",
-                params={"format": "jsonv2", "limit": 1, "q": query},
+        with httpx.Client(timeout=15) as client:
+            r = client.post(
+                "https://places.googleapis.com/v1/places:searchText",
+                headers={
+                    "X-Goog-Api-Key": GOOGLE_MAPS_API_KEY,
+                    "X-Goog-FieldMask":
+                        "places.location,places.viewport,places.types",
+                },
+                json={"textQuery": query, "maxResultCount": 1},
             )
             r.raise_for_status()
             data = r.json()
     except (httpx.HTTPError, json.JSONDecodeError, ValueError):
         return None
-    if not data:
+    places = data.get("places") if isinstance(data, dict) else None
+    if not places:
         return None
+    place = places[0] if isinstance(places[0], dict) else {}
+    loc = place.get("location") or {}
     try:
-        return {"lat": float(data[0]["lat"]), "lng": float(data[0]["lon"])}
+        lat, lng = float(loc["latitude"]), float(loc["longitude"])
     except (KeyError, ValueError, TypeError):
         return None
+    if _is_bad_centroid(lat, lng):
+        return None
+    types = set(place.get("types") or [])
+    # Viewport span sizes the matched thing: a hotel is hundreds of metres
+    # (<0.02°), a ward a few km, a city/prefecture much more.
+    span = None
+    vp = place.get("viewport") or {}
+    lo, hi = vp.get("low") or {}, vp.get("high") or {}
+    try:
+        span = max(abs(float(hi["latitude"]) - float(lo["latitude"])),
+                   abs(float(hi["longitude"]) - float(lo["longitude"])))
+    except (KeyError, ValueError, TypeError):
+        span = None
+    # Whole-region hit (bare city/country) → honest null, leave the pin unplaced.
+    if span is not None and span > 0.5:
+        return None
+    if (types & _GOOGLE_ADMIN_TYPES) and (span is None or span > 0.1):
+        return None
+    precise = not (types & _GOOGLE_ADMIN_TYPES) and (span is None or span <= 0.05)
+    return {"lat": lat, "lng": lng, "precise": precise}
+
+
+def _geocode_nominatim(query: str) -> tuple:
+    """Nominatim (OSM) lookup → (hit, bare_region).
+
+    `hit` is the most specific non-centroid result as {lat, lng, precise}, or None
+    (`precise` is False for a neighborhood-level admin hit). `bare_region` is True
+    when the *top* match is a whole city/prefecture/country centroid — i.e. the
+    query denotes a bare region ("Tokyo, Japan"), not a place. The caller uses that
+    to refuse a fuzzy Photon "rescue" that would drop a confident-wrong pin."""
+    try:
+        with httpx.Client(timeout=15, headers={"User-Agent": _UA}) as client:
+            r = client.get(
+                "https://nominatim.openstreetmap.org/search",
+                params={"format": "jsonv2", "limit": 5, "q": query},
+            )
+            r.raise_for_status()
+            data = r.json()
+    except (httpx.HTTPError, json.JSONDecodeError, ValueError):
+        return None, False
+    if not isinstance(data, list):
+        return None, False
+    bare_region = False
+    for i, hit in enumerate(data):  # keep the most specific non-centroid hit
+        try:
+            lat, lng = float(hit["lat"]), float(hit["lon"])
+        except (KeyError, ValueError, TypeError):
+            continue
+        if _is_region_centroid(hit) or _is_bad_centroid(lat, lng):
+            if i == 0:
+                bare_region = True  # best match for this query is a whole region
+            continue
+        precise = not (hit.get("category") == "boundary"
+                       and hit.get("type") == "administrative")
+        return {"lat": lat, "lng": lng, "precise": precise}, bare_region
+    return None, bare_region
+
+
+def _geocode_photon(query: str) -> Optional[dict]:
+    """Photon (komoot, keyless, OSM-based) hit → {lat, lng, precise} or None.
+    Photon parses messy/romanized street addresses far better than Nominatim —
+    e.g. it places 'Ariake 2-1-5, Koto-ku, Tokyo' in the right block where
+    Nominatim only finds the neighborhood centroid (or nothing). Same centroid
+    guard applies: a bare city still resolves to an admin centroid we must skip."""
+    try:
+        with httpx.Client(timeout=15, headers={"User-Agent": _UA}) as client:
+            r = client.get("https://photon.komoot.io/api",
+                           params={"q": query, "limit": 5})
+            r.raise_for_status()
+            data = r.json()
+    except (httpx.HTTPError, json.JSONDecodeError, ValueError):
+        return None
+    for feat in (data.get("features") if isinstance(data, dict) else None) or []:
+        props = feat.get("properties", {})
+        coords = (feat.get("geometry") or {}).get("coordinates")
+        if not (isinstance(coords, list) and len(coords) == 2):
+            continue
+        try:
+            lng, lat = float(coords[0]), float(coords[1])  # GeoJSON is [lng, lat]
+        except (ValueError, TypeError):
+            continue
+        ptype = props.get("type")
+        if ptype in _PHOTON_ADMIN_TYPES or _is_bad_centroid(lat, lng):
+            continue  # whole city/prefecture/country centroid
+        extent = props.get("extent")  # [west, north, east, south]
+        if isinstance(extent, list) and len(extent) == 4:
+            try:
+                w, n, e, s = (float(x) for x in extent)
+                if abs(n - s) > 0.5 or abs(e - w) > 0.5:  # spans a whole city+
+                    continue
+            except (ValueError, TypeError):
+                pass
+        return {"lat": lat, "lng": lng, "precise": ptype in _PHOTON_PRECISE_TYPES}
+    return None
+
+
+def _geocode(query: str) -> Optional[dict]:
+    """Geocoding. Returns {lat, lng, precise} or None.
+
+    A raw 'lat, lng' is used as-is. If GOOGLE_MAPS_API_KEY is set, Google Places
+    is authoritative — its data matches maps.google.com and resolves venues by
+    name, so whatever it returns wins. Without a key (or when Google finds
+    nothing) we fall back to the keyless chain: Nominatim first (strict, good at
+    named/admin places), then Photon (much better at messy/romanized street
+    addresses, and resolves many venues by name Nominatim can't) whenever
+    Nominatim can't return a precise hit. A None here (honestly-flagged, unplaced
+    pin) still beats a confident wrong centroid."""
+    query = (query or "").strip()
+    if not query:
+        return None
+    coords = _parse_latlng(query)
+    if coords:
+        return coords
+    google = _geocode_google(query)
+    if google:
+        return google  # Google's data matches maps.google.com — trust it fully.
+    nomi, bare_region = _geocode_nominatim(query)
+    if nomi and nomi.get("precise"):
+        return nomi
+    # Don't let Photon "rescue" a bare region ("Tokyo, Japan") — it fuzzy-matches
+    # a random POI in that city and reports it as precise, which is exactly the
+    # confident-wrong pin we refuse to drop. A null pin is the honest outcome.
+    if not bare_region:
+        photon = _geocode_photon(query)
+        if photon and photon.get("precise"):
+            return photon
+        if photon and not nomi:
+            return photon  # coarse Photon beats nothing when Nominatim found nada
+    # Neither is street-precise — return the best coarse hit we have, if any.
+    return nomi
 
 
 # --- Tool implementations (mutate the open trip) ----------------------------
@@ -388,9 +735,11 @@ def _tool_add_location(name: str, args: dict) -> dict:
     raw_category = (args.get("category") or "").strip()
     city = (args.get("city") or "").strip()
 
-    # Geocode outside the write lock (it makes a network call).
+    # Geocode outside the write lock (it makes a network call). Try the specific
+    # query, then title+city — but never a bare city, which only ever yields a
+    # region centroid (see _geocode / _is_region_centroid).
     geo = None
-    for q in (args.get("place_query"), f"{title}, {city}", city):
+    for q in (args.get("place_query"), f"{title}, {city}"):
         geo = _geocode(q or "")
         if geo:
             break
@@ -423,14 +772,29 @@ def _tool_add_location(name: str, args: dict) -> dict:
             "notes": "",
             "tags": args.get("tags") if isinstance(args.get("tags"), list) else [],
             "added_at": datetime.date.today().strftime("%Y-%m-%d"),
+            # "exact" | "approximate" (neighborhood-level) — the frontend shows a
+            # badge for "approximate" so the user knows to verify the pin.
+            "geo_precision": (
+                "exact" if (geo and geo.get("precise", True))
+                else "approximate" if geo else None
+            ),
         }
         data.setdefault("locations", []).append(loc)
         _save_trip(name, data)
 
     result = {"status": "added", "id": loc_id, "title": title,
-              "category": category, "cost": loc["cost"] or None}
+              "category": category, "cost": loc["cost"] or None,
+              # Explicit signal for the reply guard: a null-coord pin isn't on the
+              # map, so the confirmation must say so and ask for an exact location.
+              "placed": lat is not None}
     if lat is None:
-        result["warning"] = "could not geocode; pin hidden until coordinates are set"
+        result["warning"] = ("could not confidently geocode (OSM can't place venue "
+                             "names or bare cities) — pin hidden until coordinates are "
+                             "set. Ask the user for a street address, or update_location "
+                             "with a place_query of the street/neighborhood.")
+    elif not geo.get("precise", True):
+        result["warning"] = ("approximate: pinned at neighborhood level, not the exact "
+                             "address. Refine with a street address if you have one.")
     return result
 
 
@@ -463,11 +827,20 @@ def _tool_update_location(name: str, args: dict) -> dict:
             changed.append("tags")
         if geo:
             loc["lat"], loc["lng"] = geo["lat"], geo["lng"]
+            # refresh precision — a new exact address clears an old "approximate" badge
+            loc["geo_precision"] = "exact" if geo.get("precise", True) else "approximate"
             changed.append("coords")
         if not changed:
+            if place_query:  # they asked to move it but nothing usable came back
+                return {"error": ("could not confidently geocode that place_query (OSM "
+                                  "can't place venue names or bare cities). Try a street "
+                                  "address or neighborhood, or pass raw 'lat, lng'.")}
             return {"error": "nothing to update"}
         _save_trip(name, data)
-    return {"status": "updated", "id": loc_id, "title": loc.get("title"), "changed": changed}
+    result = {"status": "updated", "id": loc_id, "title": loc.get("title"), "changed": changed}
+    if geo and not geo.get("precise", True):
+        result["warning"] = "approximate: pinned at neighborhood level, not the exact address."
+    return result
 
 
 def _tool_delete_location(name: str, args: dict) -> dict:
@@ -537,6 +910,13 @@ def _tool_set_rating(name: str, args: dict) -> dict:
     return _upsert_taxonomy_entry("ratings", _DEFAULT_RATINGS, name, args)
 
 
+# Tools that change the trip file. The reply is only allowed to claim an edit
+# when one of these came back with a success status this turn (see
+# _reconcile_reply) — fetch_page/focus_location are read-only.
+_MUTATING_TOOLS = {
+    "add_location", "update_location", "delete_location", "set_category", "set_rating",
+}
+
 _TOOL_IMPL = {
     "fetch_page": _tool_fetch_page,
     "add_location": _tool_add_location,
@@ -586,7 +966,16 @@ _TOOLS = [
                     },
                     "place_query": {
                         "type": "string",
-                        "description": "Specific geocoding query: 'venue, city, region'.",
+                        "description": (
+                            "Query to geocode. Build the fullest string you can — ideally "
+                            "'venue name, street/ward, city, country' (e.g. 'Villa Fontaine "
+                            "Grand Tokyo-Ariake, Ariake 2-1-5, Koto, Tokyo, Japan'). The "
+                            "geocoder resolves venue NAMES as well as street addresses, so a "
+                            "reliable name alone (from the page or a link slug) is a valid "
+                            "query when you have no address. Raw 'lat, lng' is also accepted. "
+                            "If you have neither a real name nor an address, leave this empty "
+                            "rather than guessing; the pin is flagged for the user to fix."
+                        ),
                     },
                     "city": {"type": "string", "description": "City/region for the Maps link."},
                     "cost": {"type": "string", "description": "Cost in EURO, e.g. '€18', '~€24', 'Free', or ''."},
@@ -632,7 +1021,10 @@ _TOOLS = [
                     "tags": {"type": "array", "items": {"type": "string"}},
                     "place_query": {
                         "type": "string",
-                        "description": "If set, re-geocode and move the pin.",
+                        "description": (
+                            "If set, re-geocode and move the pin. A 'venue name, street/ward, "
+                            "city' string, a street address, or raw 'lat, lng' all work."
+                        ),
                     },
                 },
                 "required": ["loc_id"],
@@ -823,6 +1215,47 @@ class ChatRequest(BaseModel):
     history: Optional[list[ChatTurn]] = None
 
 
+# The model's confirmations always open with a past-tense action verb (the
+# agent_skill "Good replies" — "Added …", "Updated …", "Set cost …"). Anchoring
+# to the start keeps this from firing on explanatory prose ("To add a place, …").
+_CLAIM_RE = re.compile(
+    r"^\s*(added|updated|set|created|deleted|removed|changed|moved|renamed|pinned|saved)\b",
+    re.I,
+)
+
+
+def _reconcile_reply(reply: str, turn_actions: list, blocked_fetch: bool, focus_id) -> str:
+    """Ground the final reply in what the tools actually did this turn.
+
+    A weak model sometimes fabricates a confirmation ("Added …") after a tool
+    errored or was never called — so no pin appears yet the chat claims success
+    (exactly the Villa Fontaine case). If nothing actually changed this turn but
+    the reply opens like a confirmation, replace it with the honest outcome so
+    the assistant can't claim an edit it didn't make."""
+    succeeded = [r for _, r in turn_actions if isinstance(r, dict) and "error" not in r]
+    # A pin was recorded but has no coordinates → it is NOT on the map. Say so
+    # plainly and ask for an exact location, no matter how upbeat the model was;
+    # the user shouldn't have to discover it from a "no location" toast.
+    unplaced = [r for r in succeeded if r.get("placed") is False]
+    if unplaced:
+        title = unplaced[-1].get("title") or "that place"
+        return (f'Saved "{title}", but I couldn\'t place it on the map from that address — '
+                f"send an exact street address or 'lat, lng' and I'll pin it.")
+    if succeeded or focus_id:
+        return reply  # a real, placed mutation (or a map focus) happened — trust the reply
+    if not _CLAIM_RE.match(reply or ""):
+        return reply  # not a success claim (a question / info reply) — leave it
+    # The reply claims a change that never landed. Say what really happened.
+    if blocked_fetch:
+        return ("I couldn't read that page (bot wall or JS-only), so nothing was added. "
+                "Paste the street address or 'lat, lng' and I'll add it.")
+    errors = [r.get("error") for _, r in turn_actions
+              if isinstance(r, dict) and r.get("error")]
+    if errors:
+        return f"That didn't go through — {errors[-1]}"
+    return "I didn't change anything — tell me what you'd like me to add or edit."
+
+
 @app.get("/api/chat/usage")
 def chat_usage():
     """Today's usage of the chat assistant against the free-tier daily quota."""
@@ -846,6 +1279,17 @@ def chat(req: ChatRequest):
             messages.append({"role": turn.role, "content": turn.content})
     messages.append({"role": "user", "content": message})
 
+    chatlog.info("─" * 68)
+    chatlog.info(
+        "REQUEST  trip=%s  selected=%s  history=%d  model=%s",
+        name, req.selected_id or "—", len(req.history or []), GEMINI_MODEL,
+    )
+    chatlog.info("👤 user: %s", _short(message, 2000))
+    # The system prompt + full context block is large and identical-ish every
+    # turn, so it's DEBUG-only — flip CHAT_LOG_LEVEL=DEBUG to capture what we
+    # actually send the model.
+    chatlog.debug("→ system+context:\n%s", messages[0]["content"])
+
     model_calls = 0
     reply = ""
     # The pin the map should jump to afterwards: the last place the turn added
@@ -854,27 +1298,41 @@ def chat(req: ChatRequest):
     # of leaving it off-screen. Plain edits/deletes don't set it, so those don't
     # yank the map around.
     focus_id = None
+    # Ground truth for _reconcile_reply: every mutating tool result this turn,
+    # and whether a fetch came back blocked. Lets us catch a fabricated
+    # "Added …" reply when no tool actually changed anything.
+    turn_actions: list = []
+    blocked_fetch = False
     try:
-        for _ in range(MAX_TOOL_ROUNDS):
+        for round_no in range(1, MAX_TOOL_ROUNDS + 1):
+            chatlog.debug("↑ round %d → model (%d messages)", round_no, len(messages))
             resp = _gemini_chat(messages)
             model_calls += 1
             choice = resp["choices"][0]["message"]
             tool_calls = choice.get("tool_calls") or []
+            content = (choice.get("content") or "").strip()
+            # The model's prose is either its running commentary before acting
+            # (thinking, when it also calls tools) or its final answer.
+            if content:
+                label = "💭 assistant (thinking)" if tool_calls else "💬 assistant"
+                chatlog.info("%s: %s", label, _short(content, 2000))
             assistant_msg = {"role": "assistant", "content": choice.get("content") or ""}
             if tool_calls:
                 assistant_msg["tool_calls"] = tool_calls
             messages.append(assistant_msg)
 
             if not tool_calls:
-                reply = (choice.get("content") or "").strip()
+                reply = content
                 break
 
             for tc in tool_calls:
                 fn = tc.get("function", {}).get("name", "")
+                raw_args = tc.get("function", {}).get("arguments") or "{}"
                 try:
-                    fargs = json.loads(tc.get("function", {}).get("arguments") or "{}")
+                    fargs = json.loads(raw_args)
                 except (json.JSONDecodeError, ValueError):
                     fargs = {}
+                chatlog.info("🔧 %s(%s)", fn, _short(fargs, 1000))
                 impl = _TOOL_IMPL.get(fn)
                 try:
                     result = impl(name, fargs) if impl else {"error": f"unknown tool '{fn}'"}
@@ -882,6 +1340,11 @@ def chat(req: ChatRequest):
                     result = {"error": e.detail}
                 except Exception as e:  # keep the loop alive; let the model recover/apologise
                     result = {"error": str(e)}
+                chatlog.info("   ↳ %s → %s", fn, _short(result, 1000))
+                if fn in _MUTATING_TOOLS:
+                    turn_actions.append((fn, result))
+                elif fn == "fetch_page" and isinstance(result, dict) and result.get("note"):
+                    blocked_fetch = True
                 if (isinstance(result, dict)
                         and ((fn == "add_location" and result.get("status") in ("added", "duplicate"))
                              or (fn == "focus_location" and result.get("status") == "focus"))):
@@ -893,9 +1356,28 @@ def chat(req: ChatRequest):
                 })
         else:
             reply = "That needed too many steps — try rephrasing."
+            chatlog.warning("⚠️ hit MAX_TOOL_ROUNDS (%d) without a final reply", MAX_TOOL_ROUNDS)
+    except HTTPException as e:
+        chatlog.error("❌ aborted: HTTP %s — %s", e.status_code, e.detail)
+        raise
+    except Exception as e:  # pragma: no cover - defensive; re-raised for FastAPI
+        chatlog.exception("❌ aborted: unexpected error: %s", e)
+        raise
     finally:
         _bump_usage(model_calls)
 
+    corrected = _reconcile_reply(reply, turn_actions, blocked_fetch, focus_id)
+    if corrected != reply:
+        chatlog.warning(
+            "🩹 reply corrected (claimed success but nothing changed): %s → %s",
+            _short(reply, 300), _short(corrected, 300),
+        )
+        reply = corrected
+
+    chatlog.info(
+        "✅ done  model_calls=%d  focus=%s  reply=%s",
+        model_calls, focus_id or "—", _short(reply or "Done.", 1500),
+    )
     return {"reply": reply or "Done.", "usage": _usage_snapshot(), "focus_id": focus_id}
 
 

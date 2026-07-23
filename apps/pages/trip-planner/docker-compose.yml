@@ -18,6 +18,8 @@ services:
     volumes:
       # Per-trip JSON files. The plan-trip skill writes here too.
       - /data/trip-planner:/app/data
+      # Rolling daily assistant transcript, kept next to the app (git-ignored).
+      - ./logs:/app/logs
     environment:
       DATA_DIR: /app/data
       DEFAULT_TRIP: japan
@@ -25,7 +27,15 @@ services:
       # compose file (see .env.example); the chat panel stays hidden if unset.
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash}
+      # Optional Google Places key for accurate venue-name geocoding (see
+      # .env.example). Blank → keyless Nominatim/Photon fallback.
+      GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
       CHAT_DAILY_LIMIT: ${CHAT_DAILY_LIMIT:-1500}
+      # Rolling daily transcript of every chat turn (send/receive + thinking +
+      # tool calls), written to ./logs/chat.log via the bind mount above.
+      # CHAT_LOG_LEVEL=DEBUG additionally logs the full system+context we send.
+      CHAT_LOG_LEVEL: ${CHAT_LOG_LEVEL:-INFO}
+      CHAT_LOG_KEEP_DAYS: ${CHAT_LOG_KEEP_DAYS:-5}
     networks:
       - main-network
 

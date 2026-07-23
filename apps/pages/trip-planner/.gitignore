@@ -1,0 +1,2 @@
+# Rolling daily assistant transcript (bind-mounted into the container).
+logs/
