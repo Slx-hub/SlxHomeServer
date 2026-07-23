@@ -236,6 +236,7 @@ export class TripMap {
                     (loc.source_url
                         ? `<a class="pop-link src" href="${esc(loc.source_url)}" target="_blank" rel="noopener">🔗 Source</a>`
                         : '') +
+                    `<button class="pop-link share" type="button" title="Copy a link to this pin">🔗 Share</button>` +
                 `</div>` +
                 `<div class="rate-row">${ratingBtns}</div>` +
                 `<textarea class="pop-notes" rows="2" placeholder="Notes — e.g. hard to get to, rainy-day option…">${esc(loc.notes)}</textarea>` +
@@ -285,6 +286,22 @@ export class TripMap {
                 showToast('Notes saved', 'ok');
             } catch (err) {
                 showToast(`Save failed: ${err.message}`, 'error');
+            }
+        });
+
+        // Share — copy a deep link that reopens this pin (?focus_location=…).
+        root.querySelector('.pop-link.share').addEventListener('click', async () => {
+            const url = new URL(window.location);
+            url.searchParams.set('trip', trip);
+            url.searchParams.set('focus_location', locId);
+            const link = url.toString();
+            try {
+                await navigator.clipboard.writeText(link);
+                showToast('Link copied to clipboard', 'ok');
+            } catch {
+                // Clipboard API unavailable (non-secure context / denied) —
+                // fall back to a prompt so the link is still copyable.
+                window.prompt('Copy this link:', link);
             }
         });
 

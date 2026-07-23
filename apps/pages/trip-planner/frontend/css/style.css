@@ -235,6 +235,8 @@ body {
     color: var(--text) !important;
 }
 .pop-link.gmaps { background: color-mix(in srgb, var(--accent) 24%, transparent); border-color: var(--accent); }
+/* Share is a <button>, not an <a> — normalise it to the pill look. */
+.pop-link.share { background: var(--bg-surface); cursor: pointer; font-family: var(--font); line-height: 1.2; }
 .pop-link:hover { background: var(--bg-hover); }
 
 .rate-row { display: flex; gap: 5px; margin-bottom: 9px; }

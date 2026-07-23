@@ -123,7 +123,10 @@ async function init() {
         return;
     }
 
-    const pinId = new URLSearchParams(window.location.search).get('pin');
+    // Deep link to a single pin: `?focus_location=<id>` (from the Share button)
+    // or the legacy `?pin=<id>`.
+    const params = new URLSearchParams(window.location.search);
+    const pinId = params.get('focus_location') || params.get('pin');
     if (pinId && !map.openPin(pinId)) {
         showToast(`Pin "${pinId}" not found`, 'error', 4000);
     }
