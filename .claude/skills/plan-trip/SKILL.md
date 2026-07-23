@@ -96,40 +96,65 @@ the rate, do a quick lookup, but don't block on precision.
 
       **If the fetch comes back empty, blocked, or without a real address** — booking.com,
       Airbnb, Google Maps share links, and many hotel sites return a bot wall or a JS shell with
-      *no* usable text. **Do not proceed to geocode a name you guessed from the URL slug** — that
-      is exactly how pins land on the wrong spot. Instead `WebSearch` for the place's real address
-      (e.g. `"<hotel name> address"`), which reliably surfaces the street + ward even when the
-      page is blocked, and geocode *that*. For short share links (`booking.com/Share-…`,
-      `maps.app.goo.gl/…`) that WebFetch can't follow, resolve the real destination first:
-      `curl -sIL "<url>" | grep -i '^location:'`, then fetch/search the resolved page.
-   b. **Geocode** with Nominatim (free, keyless). Respect its policy: send a User-Agent and
-      keep to ~1 request/second. Query the **address**, most-specific first:
+      *no* usable text. That's fine: the geocoder below (Google Places) resolves venues **by
+      name**, so a reliable venue name — from the page, the link slug, or the trip context — is a
+      valid query on its own. Just don't invent a name you're unsure of. For short share links
+      (`booking.com/Share-…`, `maps.app.goo.gl/…`) that WebFetch can't follow, resolving the real
+      destination still gives a better name/address: `curl -sIL "<url>" | grep -i '^location:'`,
+      then fetch the resolved page. (Without a Google key, Nominatim can't place names — then fall
+      back to `WebSearch "<venue> address"` and geocode the address it surfaces.)
+   b. **Geocode.** Load the Google Places key once (it lives in the app's env file; never print
+      or commit it):
+      ```bash
+      KEY=$(grep -E '^GOOGLE_MAPS_API_KEY=' apps/pages/trip-planner/.env | cut -d= -f2- | tr -d '"'\'' ')
+      ```
+
+      **Primary — Google Places Text Search (New)** whenever `$KEY` is non-empty. It shares Google
+      Maps' index, so it resolves venues *by name* and messy romanized addresses that OSM can't.
+      Query the fullest `"venue name, ward, city, country"` string you have:
+      ```bash
+      curl -s -X POST 'https://places.googleapis.com/v1/places:searchText' \
+        -H 'Content-Type: application/json' \
+        -H "X-Goog-Api-Key: $KEY" \
+        -H 'X-Goog-FieldMask: places.displayName,places.formattedAddress,places.location,places.types,places.viewport' \
+        -d '{"textQuery":"<query>","maxResultCount":1}'
+      ```
+      From the top result in `places[0]`:
+      - Pin = `location.latitude` / `location.longitude`.
+      - Set `geo_precision` from `types` + the `viewport` span (the larger of its lat/lng extent,
+        `high - low`) — this mirrors the backend so both paths agree:
+        - a specific venue/address (types like `point_of_interest`, `establishment`, `premise`,
+          `street_address`, `route`; span ≤ ~0.05°) → **`"exact"`**;
+        - an area type (`locality`, `sublocality*`, `neighborhood`, `postal_*`,
+          `administrative_area_level_*`) with a small-ish viewport → **`"approximate"`**;
+        - a **region-sized** result (viewport span > 0.5°, e.g. a bare city/prefecture/country, or
+          the known bad Tokyo centroid `35.6768601, 139.7638947`) → **reject it**: treat as no
+          result, don't pin the centroid.
+      Google usually nails it on the first, fullest query, so you rarely need the fallback.
+
+      **Fallback — Nominatim (OSM, keyless)** only when `$KEY` is empty, or Google returns nothing
+      / a region-only hit. Respect its policy (send a User-Agent, ~1 req/s) and query the
+      **address**, most-specific first:
       ```bash
       curl -s -A "SlxTripPlanner/1.0 (slakxs.de)" \
         "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=<url-encoded address>"
       ```
-      **Nominatim (OSM) does not index most venues by name** — hotels, restaurants, and shops
-      usually return nothing or the wrong thing, and romanized Japanese/Asian *street* addresses
-      often fail too. So geocode a **place**, not a business name, and fall back one address level
-      at a time, keeping the **most specific result that resolves**:
-      `full street address` → `neighborhood/ward + city + country` → `district + city + country`.
-      **Stop before bare city/region** — do not fall all the way back to just `"Tokyo"` / a
-      country. A city-or-larger query returns a single administrative *centroid* that looks
-      precise (7 decimals) but is wrong for a specific venue, and every unresolvable place in that
-      city collapses onto the identical point.
-
-      **Reject region-centroid results.** After each query, inspect the result before accepting
-      its `lat`/`lon`. Treat it as *not a real location* — and drop to the next fallback (or flag)
-      — if any of these hold:
+      Nominatim does **not** index most venues by name, so here geocode a **place**, not a business
+      name, and fall back one address level at a time, keeping the **most specific result that
+      resolves**: `full street address` → `neighborhood/ward + city + country` → `district + city +
+      country`. **Stop before bare city/region** — a city-or-larger query returns an administrative
+      *centroid* that looks precise (7 decimals) but is wrong for a venue, and every unresolvable
+      place in that city collapses onto the identical point. **Reject region-centroid results**:
+      treat a hit as *not a real location* — drop to the next fallback (or flag) — if any hold:
       - `class` is `boundary` and `type` is `administrative` **and** `place_rank <= 16`
-        (that's city-level or bigger; a neighborhood/`quarter` is ~20 and is fine as a coarse pin);
+        (city-level or bigger; a neighborhood/`quarter` is ~20 and is fine as a coarse pin);
       - the `boundingbox` spans more than ~0.5° in either dimension (a whole city/prefecture);
       - the coordinates equal (to ~4 decimals) an existing pin in this file, or the known bad
         Tokyo centroid `35.6768601, 139.7638947`.
 
-      If nothing resolves above city level, add the location with `lat`/`lng` set to `null` and
-      flag it in your summary — **a null, honestly-flagged pin is better than a confident wrong
-      one.** The app won't pin it until the coordinates are fixed.
+      If nothing resolves above city level in *either* service, add the location with `lat`/`lng`
+      set to `null` and flag it in your summary — **a null, honestly-flagged pin is better than a
+      confident wrong one.** The app won't pin it until the coordinates are fixed.
    c. **google_maps_url** — prefer a named search for good navigation:
       `https://www.google.com/maps/search/?api=1&query=` + URL-encoded `"<title>, <city>"`.
       If you have no reliable name, fall back to `…?api=1&query=<lat>,<lng>`.
