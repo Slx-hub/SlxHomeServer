@@ -418,6 +418,7 @@ body {
 
 .chat-input {
     display: flex;
+    align-items: flex-end;
     gap: 8px;
     padding: 10px 12px;
     border-top: 1px solid var(--border);
@@ -432,11 +433,16 @@ body {
     padding: 9px 11px;
     font-family: var(--font);
     font-size: .9rem;
+    line-height: 1.35;
+    resize: none;
+    max-height: 120px;
+    overflow-y: auto;
 }
 .chat-text:focus { outline: none; border-color: var(--accent); }
 .chat-send {
     flex: none;
     width: 40px;
+    height: 40px;
     border: none;
     border-radius: 9px;
     background: var(--accent);

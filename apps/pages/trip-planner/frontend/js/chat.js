@@ -40,8 +40,8 @@ export class Chat {
             <div class="chat-context" hidden></div>
             <div class="chat-log" aria-live="polite"></div>
             <form class="chat-input">
-                <input type="text" class="chat-text" autocomplete="off"
-                       placeholder="Add a link, or edit a place…" />
+                <textarea class="chat-text" autocomplete="off" rows="1"
+                          placeholder="Add a link, or edit a place… (Shift+Enter for a new line)"></textarea>
                 <button type="submit" class="chat-send" title="Send">➤</button>
             </form>`;
 
@@ -55,6 +55,13 @@ export class Chat {
 
         this.panel.querySelector('.chat-close').addEventListener('click', () => this._toggle(false));
         this.formEl.addEventListener('submit', (e) => { e.preventDefault(); this.send(); });
+        // Enter sends; Shift+Enter inserts a newline (the textarea's default).
+        this.inputEl.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                this.send();
+            }
+        });
 
         this._addMessage('assistant',
             'Hi! Paste a link to add a place, or tell me to change one (tap a pin first for “this …”).');
