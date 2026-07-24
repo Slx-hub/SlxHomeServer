@@ -195,6 +195,30 @@ export class TripMap {
         return [...this._entries.values()].map((e) => e.loc);
     }
 
+    /**
+     * Locations that are both filter-visible AND inside the current viewport.
+     * Computed on demand (cheap: one bounds check per marker) so the list view
+     * can stay lazy — the app only calls this while the drawer is open.
+     */
+    visibleInView() {
+        const bounds = this.map.getBounds();
+        const out = [];
+        for (const e of this._entries.values()) {
+            if (e.visible && bounds.contains(e.marker.getLatLng())) out.push(e.loc);
+        }
+        return out;
+    }
+
+    /** Subscribe to viewport changes (pan/zoom settled). Returns an unsubscribe. */
+    onViewChange(cb) {
+        this.map.on('moveend zoomend', cb);
+        return () => this.map.off('moveend zoomend', cb);
+    }
+
+    /** Public taxonomy lookups for the list view (category always resolves). */
+    categoryMeta(key) { return this._category(key); }
+    ratingMeta(key) { return this.ratings[key] || null; }
+
     _category(key) {
         return this.categories[key] || this.categories.other || DEFAULT_CATEGORIES.other;
     }

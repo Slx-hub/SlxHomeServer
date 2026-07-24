@@ -6,6 +6,7 @@ import { Api } from './api.js';
 import { TripMap } from './map.js';
 import { Filters } from './filters.js';
 import { Chat } from './chat.js';
+import { TripList } from './list.js';
 
 const api = new Api();
 
@@ -27,7 +28,7 @@ function showToast(msg, kind = 'ok', ms = 2200) {
 let currentTrip = null;
 
 const filters = new Filters(document.getElementById('filter-panel-body'), {
-    onChange: () => map.setFilter(filters.predicate()),
+    onChange: () => { map.setFilter(filters.predicate()); list.refresh(); },
 });
 
 const map = new TripMap('map', {
@@ -38,6 +39,7 @@ const map = new TripMap('map', {
     onChange: () => {
         filters.mount(map.locations(), { reset: false });
         map.setFilter(filters.predicate());
+        list.refresh();
     },
     // A pin was opened — hand it to the chat as "selected activity" context.
     onSelect: (loc) => chat.setSelected(loc),
@@ -55,12 +57,16 @@ const chat = new Chat({
     onMutate: (focusId) => currentTrip && refreshTrip(currentTrip, focusId),
 });
 
+// Bottom-right drawer listing the pins currently in view (filter + viewport).
+const list = new TripList(map);
+
 /** Re-fetch the open trip and re-render in place (used after chat edits). */
 async function refreshTrip(name, focusId = null) {
     const trip = await api.getTrip(name);
     map.render(trip, { preserveView: true });
     filters.mount(map.locations(), { reset: false, categories: trip.categories, ratings: trip.ratings });
     map.setFilter(filters.predicate());
+    list.refresh();
     // Jump to and open the pin the chat pointed at. openPin force-shows it even
     // if its type filter is off, and fails only when it has no coordinates.
     if (focusId && !map.openPin(focusId)) {
@@ -82,6 +88,7 @@ async function loadTrip(name) {
     map.render(trip);
     filters.mount(trip.locations || [], { reset: true, categories: trip.categories, ratings: trip.ratings });
     map.setFilter(filters.predicate());
+    list.refresh();
 }
 
 async function init() {
