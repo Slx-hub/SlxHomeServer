@@ -80,17 +80,21 @@ export class TripList {
         this.bodyEl.innerHTML = rows.map((loc) => {
             const c = this.map.categoryMeta(loc.category);
             const r = this.map.ratingMeta(loc.rating);
+            const notes = (loc.notes || '').trim();
             return (
                 `<button class="list-row" data-loc="${esc(loc.id)}" type="button">` +
                     `<span class="list-type" style="--c:${c.color}" title="${esc(c.label)}">${c.emoji}</span>` +
-                    `<span class="list-title">${esc(loc.title)}</span>` +
+                    `<span class="list-main">` +
+                        `<span class="list-title">${esc(loc.title)}</span>` +
+                        (notes ? `<span class="list-notes">${esc(notes)}</span>` : '') +
+                    `</span>` +
                     (r ? `<span class="list-rating" title="${esc(r.label)}">${r.emoji}</span>` : '') +
                 `</button>`
             );
         }).join('');
 
         this.bodyEl.querySelectorAll('.list-row').forEach((btn) => {
-            btn.addEventListener('click', () => this.map.openPin(btn.dataset.loc));
+            btn.addEventListener('click', () => this.map.openPin(btn.dataset.loc, { focus: false }));
         });
     }
 }

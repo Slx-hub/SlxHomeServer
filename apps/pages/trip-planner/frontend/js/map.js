@@ -154,14 +154,14 @@ export class TripMap {
      * Center on a single pin and open its popup (deep link support, e.g.
      * `?trip=japan&pin=ninja-tokyo`). Returns false if the id isn't found.
      */
-    openPin(id) {
+    openPin(id, { focus = true } = {}) {
         const entry = this._entries.get(id);
         if (!entry) return false;
         if (!entry.visible) {
             this.map.addLayer(entry.marker);
             entry.visible = true;
         }
-        this.map.setView(entry.marker.getLatLng(), Math.max(this.map.getZoom(), 15));
+        if (focus) this.map.setView(entry.marker.getLatLng(), Math.max(this.map.getZoom(), 15));
         entry.marker.openPopup();
         return true;
     }
