@@ -7,6 +7,7 @@ import { TripMap } from './map.js';
 import { Filters } from './filters.js';
 import { Chat } from './chat.js';
 import { TripList } from './list.js';
+import { fmtDay, locCoversDay } from './dates.js';
 
 const api = new Api();
 
@@ -57,8 +58,31 @@ const chat = new Chat({
     onMutate: (focusId) => currentTrip && refreshTrip(currentTrip, focusId),
 });
 
-// Bottom-right drawer listing the pins currently in view (filter + viewport).
-const list = new TripList(map);
+// Bottom-right drawer: pins currently in view (filter + viewport) + calendar.
+const list = new TripList(map, {
+    onSelectDay: (day) => setDay(map.dayFilter() === day ? null : day),
+});
+
+// ── Day isolation ────────────────────────────────────────────────────────
+// Picking a day in the calendar keeps only that day's pins on the map and
+// frames them; picking it again (or clearing the banner) restores everything.
+const dayBanner = document.getElementById('day-banner');
+const dayBannerLabel = document.getElementById('day-banner-label');
+
+function renderDayBanner() {
+    const day = map.dayFilter();
+    dayBanner.hidden = !day;
+    if (!day) return;
+    const n = map.locations().filter((loc) => locCoversDay(loc, day)).length;
+    dayBannerLabel.textContent =
+        `📅 ${fmtDay(day)} — ${n} place${n === 1 ? '' : 's'}`;
+}
+
+function setDay(day) {
+    map.setDayFilter(day);
+    renderDayBanner();
+    list.refresh();
+}
 
 /** Re-fetch the open trip and re-render in place (used after chat edits). */
 async function refreshTrip(name, focusId = null) {
@@ -67,6 +91,7 @@ async function refreshTrip(name, focusId = null) {
     filters.mount(map.locations(), { reset: false, categories: trip.categories, ratings: trip.ratings });
     map.setFilter(filters.predicate());
     list.refresh();
+    renderDayBanner();
     // Jump to and open the pin the chat pointed at. openPin force-shows it even
     // if its type filter is off, and fails only when it has no coordinates.
     if (focusId && !map.openPin(focusId)) {
@@ -85,10 +110,14 @@ async function loadTrip(name) {
     url.searchParams.set('trip', name);
     history.replaceState(null, '', url);
 
+    // A day picked in the previous trip means nothing in this one, and render()
+    // reframes the map anyway — so drop it without restoring the old view.
+    map.setDayFilter(null, { restoreView: false });
     map.render(trip);
     filters.mount(trip.locations || [], { reset: true, categories: trip.categories, ratings: trip.ratings });
     map.setFilter(filters.predicate());
     list.refresh();
+    renderDayBanner();
 }
 
 async function init() {
@@ -140,7 +169,13 @@ async function init() {
 }
 
 // ── Static controls ──────────────────────────────────────────────────────
-document.getElementById('btn-fit').addEventListener('click', () => map.fitAll());
+// ⤢ frames everything, so it's also the natural "get me out of one day" button.
+document.getElementById('btn-fit').addEventListener('click', () => {
+    if (map.dayFilter()) setDay(null);
+    map.fitAll();
+});
+document.getElementById('day-banner-clear').addEventListener('click', () => setDay(null));
+dayBannerLabel.addEventListener('click', () => list.showCalendar());
 
 const filterPanel = document.getElementById('filter-panel');
 const filterToggle = document.getElementById('filter-toggle');

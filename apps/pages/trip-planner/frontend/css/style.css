@@ -235,6 +235,30 @@ body {
     cursor: help;
 }
 
+/* Schedule row: two date pickers (day - last day of a stay) and nothing else —
+   they render the dates themselves. At the fixed 320px card width each gets
+   ~135px, which fits a native "28.11.2026" plus its picker icon. */
+.pop-when {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 9px;
+}
+.pop-when-sep { flex: none; color: var(--text-muted); }
+.pop-date, .pop-date-end {
+    flex: 1;
+    min-width: 0;
+    background: var(--bg-surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 5px 7px;
+    font-family: var(--font);
+    font-size: .8rem;
+    color-scheme: dark;   /* native picker + its icon follow the panel, not the OS */
+}
+.pop-date:focus, .pop-date-end:focus { outline: none; border-color: var(--accent); }
+
 .pop-links { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
 .pop-link {
     font-size: .8rem;
@@ -487,6 +511,9 @@ body {
     overflow: hidden;
 }
 .list-panel[hidden] { display: none; }
+/* Two 6-week months plus heads, nav and hint need ~660px — the list's 560px cap
+   would force a scrollbar through the middle of the calendar. */
+.list-panel.cal-open { max-height: min(94vh, 760px); }
 
 .list-head {
     display: flex;
@@ -495,7 +522,29 @@ body {
     padding: 10px 12px;
     border-bottom: 1px solid var(--border);
 }
+/* Tabs (In view / Calendar) live in the drawer head, left of the count. */
+.drawer-tabs { display: flex; gap: 4px; margin-right: auto; }
+.drawer-tab {
+    background: none;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    color: var(--text-muted);
+    font-family: var(--font);
+    font-size: .78rem;
+    padding: 4px 9px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color .12s, background .12s, border-color .12s;
+}
+.drawer-tab:hover { color: var(--text); }
+.drawer-tab.on {
+    color: var(--text);
+    background: color-mix(in srgb, var(--accent) 22%, var(--bg-surface));
+    border-color: var(--accent);
+}
+
 .list-head strong { font-size: .95rem; }
+.list-count[hidden] { display: none; }
 .list-count {
     font-size: .72rem;
     font-weight: 600;
@@ -505,7 +554,9 @@ body {
     background: var(--bg-surface);
     border: 1px solid var(--border);
 }
-.list-head .list-close { margin-left: auto; padding: 4px 8px; }
+/* No margin-left:auto here — .drawer-tabs' margin-right:auto already pushes the
+   count and close button to the right edge, and two autos would split the gap. */
+.list-head .list-close { padding: 4px 8px; }
 
 .list-body {
     flex: 1;
@@ -515,6 +566,9 @@ body {
     flex-direction: column;
     gap: 4px;
 }
+/* An author `display` beats the UA's [hidden] rule, so switching to the calendar
+   tab would otherwise leave the list rendered underneath it. */
+.list-body[hidden] { display: none; }
 .list-empty { color: var(--text-muted); font-size: .84rem; padding: 12px; }
 
 .list-row {
@@ -558,6 +612,14 @@ body {
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+.list-meta {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 0;
+    font-size: .78rem;
+}
+.list-date { flex: none; color: #ffd166; font-weight: 600; }
 .list-notes {
     color: var(--text-muted);
     font-size: .78rem;
@@ -566,6 +628,168 @@ body {
     white-space: nowrap;
 }
 .list-rating { flex: none; font-size: 1rem; }
+
+/* ── Calendar tab ─────────────────────────────────────────────────────── */
+.cal-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px 12px 12px;
+}
+.cal-body[hidden] { display: none; }
+
+/* Month pager: ‹ label › , plus ⌂ back-to-the-trip once you've paged away. */
+.cal-nav {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    margin-bottom: 8px;
+}
+.cal-nav-label {
+    flex: 1;
+    text-align: center;
+    font-size: .78rem;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+.cal-nav-btn {
+    flex: none;
+    width: 26px;
+    height: 26px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--bg-surface);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: .9rem;
+    line-height: 1;
+    cursor: pointer;
+}
+.cal-nav-btn:hover { border-color: var(--accent); color: var(--accent); }
+.cal-nav-home { font-size: .8rem; }
+
+.cal-month + .cal-month { margin-top: 14px; }
+.cal-month-head {
+    font-size: .82rem;
+    font-weight: 600;
+    text-align: center;
+    margin-bottom: 6px;
+}
+.cal-dow, .cal-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 3px;
+}
+.cal-dow {
+    margin-bottom: 3px;
+    font-size: .64rem;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--text-muted);
+    text-align: center;
+}
+
+.cal-day {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    aspect-ratio: 1;
+    min-height: 34px;
+    padding: 2px 0;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: none;
+    color: var(--text-muted);
+    font-family: var(--font);
+    cursor: pointer;
+    transition: background .12s, border-color .12s, color .12s;
+}
+.cal-day.pad { visibility: hidden; }
+.cal-num { font-size: .8rem; line-height: 1; }
+
+/* The vacation itself — a band across the days the trip runs. */
+.cal-day.trip {
+    background: color-mix(in srgb, var(--accent) 20%, var(--bg-surface));
+    color: var(--text);
+}
+.cal-day.trip-start, .cal-day.trip-end { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent); }
+.cal-day.has .cal-num { font-weight: 700; }
+.cal-day.today { color: #ffd166; }
+.cal-day.today .cal-num { text-decoration: underline; text-underline-offset: 2px; }
+.cal-day:hover { border-color: var(--accent); color: var(--text); }
+.cal-day.sel {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: #fff;
+}
+
+/* One dot per pin that day, coloured by pin type; a 5th+ shows as a grey dot. */
+.cal-dots {
+    display: flex;
+    gap: 2px;
+    height: 5px;
+    align-items: center;
+}
+.cal-dots i {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--c, var(--text-muted));
+}
+.cal-dots i.more { background: var(--text-muted); opacity: .8; }
+.cal-day.sel .cal-dots i { box-shadow: 0 0 0 1px rgba(255, 255, 255, .8); }
+
+.cal-hint {
+    margin-top: 12px;
+    font-size: .74rem;
+    line-height: 1.45;
+    color: var(--text-muted);
+}
+.cal-hint strong { color: var(--text); }
+
+/* ── Isolated-day banner ──────────────────────────────────────────────── */
+/* Top-centre so the day filter stays obvious even with the drawer closed. */
+.day-banner {
+    position: fixed;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1003;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 4px 6px 4px 4px;
+    border-radius: 999px;
+    background: var(--bg-panel);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    border: 1px solid var(--accent);
+    box-shadow: var(--shadow);
+    max-width: calc(100vw - 28px);
+}
+.day-banner[hidden] { display: none; }
+.day-banner-label, .day-banner-clear {
+    background: none;
+    border: none;
+    color: var(--text);
+    font-family: var(--font);
+    cursor: pointer;
+    border-radius: 999px;
+}
+.day-banner-label {
+    font-size: .8rem;
+    font-weight: 600;
+    padding: 4px 8px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.day-banner-label:hover { background: var(--bg-hover); }
+.day-banner-clear { color: var(--text-muted); font-size: .85rem; padding: 4px 7px; }
+.day-banner-clear:hover { color: var(--text); background: var(--bg-hover); }
 
 /* ── Toast ────────────────────────────────────────────────────────────── */
 .toast {
@@ -617,4 +841,14 @@ body {
         border-radius: var(--radius) var(--radius) 0 0;
     }
     .list-fab { bottom: 18px; right: 14px; }
+    .drawer-tab { font-size: .74rem; padding: 4px 7px; }
+
+    /* One month at a time here (see TripCalendar._monthCount) — two would eat
+       the whole screen — so the sheet needs no extra height for the calendar. */
+    .list-panel.cal-open { max-height: 72vh; }
+    .cal-nav-btn { width: 32px; height: 32px; }
+
+    /* Top-centre would land on the trip switcher here — sit above the FAB row
+       instead (clear of the toast at 22px and the 52px buttons at 18px). */
+    .day-banner { top: auto; bottom: 82px; }
 }

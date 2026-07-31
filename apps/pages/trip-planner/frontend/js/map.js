@@ -4,6 +4,11 @@
  * editable rating & notes that write back to the API).
  */
 import { DEFAULT_CATEGORIES, DEFAULT_RATINGS } from './config.js';
+import { fmtSpan, isIso, locCoversDay, locSpan } from './dates.js';
+
+// Every pin card is exactly this wide: passing it as both minWidth and maxWidth
+// makes Leaflet skip shrink-to-fit, so cards don't resize with their text.
+const CARD_WIDTH = 294;
 
 const OSM_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 const CARTO_ATTR = OSM_ATTR + ' &copy; <a href="https://carto.com/attributions">CARTO</a>';
@@ -79,6 +84,12 @@ export class TripMap {
         // locId -> { marker, loc, visible }
         this._entries = new Map();
         this._filter = () => true;
+        // Day isolation (calendar): an ISO day, or null for "show every day".
+        // AND-ed with the filter predicate above in _applyFilter.
+        this._day = null;
+        this._preDayView = null;   // view to restore when day isolation is cleared
+        // The trip's travel window, { start, end } ISO — bounds the date inputs.
+        this._window = null;
         // The last opened pin — used as context by the chat assistant ("this").
         this._selected = null;
 
@@ -114,6 +125,13 @@ export class TripMap {
     render(trip, { preserveView = false } = {}) {
         this.categories = trip.categories || DEFAULT_CATEGORIES;
         this.ratings = trip.ratings || DEFAULT_RATINGS;
+        this._window = isIso(trip.start_date)
+            ? {
+                start: trip.start_date,
+                end: isIso(trip.end_date) && trip.end_date >= trip.start_date
+                    ? trip.end_date : trip.start_date,
+            }
+            : null;
 
         const savedCenter = preserveView ? this.map.getCenter() : null;
         const savedZoom = preserveView ? this.map.getZoom() : null;
@@ -125,8 +143,8 @@ export class TripMap {
             if (loc.lat == null || loc.lng == null) continue;
             const marker = L.marker([loc.lat, loc.lng], { icon: this._icon(loc) });
             marker.bindPopup(() => this._popupHtml(this._entries.get(loc.id).loc), {
-                maxWidth: 320,
-                minWidth: 260,
+                minWidth: CARD_WIDTH,
+                maxWidth: CARD_WIDTH,
                 autoPanPadding: [24, 24],
             });
             // visible:false — the marker isn't on the map yet; _applyFilter()
@@ -181,9 +199,48 @@ export class TripMap {
         this._applyFilter();
     }
 
+    /** The trip's travel window ({ start, end } ISO) or null. */
+    tripWindow() {
+        return this._window;
+    }
+
+    /** The day currently isolated on the map, or null. */
+    dayFilter() {
+        return this._day;
+    }
+
+    /**
+     * Isolate one day: only pins scheduled on it stay on the map, and the view
+     * frames them. Passing null puts every pin back and returns to the view the
+     * map had before the day was picked — so tapping a day twice is a clean
+     * undo. `restoreView: false` skips that (trip switches, which reframe anyway).
+     */
+    setDayFilter(day, { restoreView = true } = {}) {
+        const next = day || null;
+        if (next === this._day) return;
+        if (next && !this._day) {
+            this._preDayView = { center: this.map.getCenter(), zoom: this.map.getZoom() };
+        }
+        this._day = next;
+        this._applyFilter();
+
+        if (next) {
+            const pts = [...this._entries.values()]
+                .filter((e) => e.visible)
+                .map((e) => e.marker.getLatLng());
+            // fitBounds on a single point zooms to max — set the view instead.
+            if (pts.length === 1) this.map.setView(pts[0], Math.max(this.map.getZoom(), 14));
+            else if (pts.length) this.map.fitBounds(L.latLngBounds(pts).pad(0.25));
+        } else if (restoreView && this._preDayView) {
+            this.map.setView(this._preDayView.center, this._preDayView.zoom);
+        }
+        if (!next) this._preDayView = null;
+    }
+
     _applyFilter() {
         for (const e of this._entries.values()) {
-            const show = this._filter(e.loc);
+            const show = this._filter(e.loc)
+                && (!this._day || locCoversDay(e.loc, this._day));
             if (show && !e.visible) this.map.addLayer(e.marker);
             else if (!show && e.visible) this.map.removeLayer(e.marker);
             e.visible = show;
@@ -238,6 +295,28 @@ export class TripMap {
         });
     }
 
+    /**
+     * The "when" row of a pin card: just the two date pickers — the day, and the
+     * last day for something that spans several (a stay). They already render
+     * the dates, so there's no separate date label. min/max bound them to the
+     * trip's travel window, which also greys out every non-trip day in the
+     * native picker.
+     */
+    _whenHtml(loc) {
+        const w = this._window;
+        const bounds = w ? ` min="${w.start}" max="${w.end}"` : '';
+        return (
+            `<div class="pop-when">` +
+                `<input type="date" class="pop-date" aria-label="Day this is planned for"` +
+                    ` title="Day this is planned for" value="${esc(loc.date || '')}"${bounds}>` +
+                `<span class="pop-when-sep" aria-hidden="true">-</span>` +
+                `<input type="date" class="pop-date-end" aria-label="Last day of a stay"` +
+                    ` title="Last day — only for a multi-day stay"` +
+                    ` value="${esc(loc.date_end || '')}"${bounds}>` +
+            `</div>`
+        );
+    }
+
     _popupHtml(loc) {
         const c = this._category(loc.category);
         const ratingBtns = Object.entries(this.ratings)
@@ -254,6 +333,7 @@ export class TripMap {
                     (loc.cost ? `<span class="pop-cost">${esc(loc.cost)}</span>` : '') +
                 `</div>` +
                 `<h3 class="pop-title">${esc(loc.title)}</h3>` +
+                this._whenHtml(loc) +
                 (loc.description ? `<p class="pop-desc">${esc(loc.description)}</p>` : '') +
                 (loc.geo_precision === 'approximate'
                     ? `<p class="pop-approx" title="This pin was placed at neighborhood level, not the exact address. Ask the assistant to refine it with a street address.">📍 Approximate location — neighborhood only</p>`
@@ -302,6 +382,39 @@ export class TripMap {
                 }
             });
         });
+
+        // Schedule: either picker saves both fields, so setting a start and an
+        // end in one go can't race two half-written patches against each other.
+        // (Nothing here may call popup.update() — with a function content source
+        // that re-runs _popupHtml and throws away this wiring.)
+        const dateEl = root.querySelector('.pop-date');
+        const dateEndEl = root.querySelector('.pop-date-end');
+        const saveDates = async () => {
+            const patch = { date: dateEl.value, date_end: dateEndEl.value };
+            if (patch.date === (entry.loc.date || '')
+                && patch.date_end === (entry.loc.date_end || '')) return;
+            try {
+                const saved = await api.patchLocation(trip, locId, patch);
+                // The backend normalises (an end before the start gets swapped, a
+                // one-day range collapses) — mirror what it actually stored.
+                entry.loc.date = saved.date || null;
+                entry.loc.date_end = saved.date_end || null;
+                dateEl.value = entry.loc.date || '';
+                dateEndEl.value = entry.loc.date_end || '';
+                onChange?.();
+                // The pickers show the day; the toast adds the weekday and, for a
+                // stay, how many nights it works out to.
+                showToast(locSpan(entry.loc)
+                    ? `Scheduled: ${fmtSpan(entry.loc)}`
+                    : 'Unscheduled', 'ok');
+            } catch (err) {
+                dateEl.value = entry.loc.date || '';
+                dateEndEl.value = entry.loc.date_end || '';
+                showToast(`Save failed: ${err.message}`, 'error', 4000);
+            }
+        };
+        dateEl.addEventListener('change', saveDates);
+        dateEndEl.addEventListener('change', saveDates);
 
         // Notes autosave on blur (only if changed)
         const notes = root.querySelector('.pop-notes');

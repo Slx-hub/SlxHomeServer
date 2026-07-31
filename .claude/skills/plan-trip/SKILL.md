@@ -23,8 +23,11 @@ If no trip name is given, ask for a short one (e.g. `japan`, `portugal-2027`). S
 - Directory: `/data/trip-planner/` — create it if missing: `mkdir -p /data/trip-planner`
 - File: `/data/trip-planner/<slug>.json`. If it doesn't exist, create it:
   ```json
-  { "title": "Japan 2026", "locations": [] }
+  { "title": "Japan 2026", "start_date": "2026-11-28", "end_date": "2026-12-13", "locations": [] }
   ```
+  `start_date`/`end_date` are the **travel window** — the vacation the app's calendar highlights,
+  and the frame that lets the in-app assistant resolve "the 7th" to one exact date. Both ISO
+  `YYYY-MM-DD`. Ask for them if the user hasn't said; omit them only if they don't know yet.
   Do **not** set `center`/`zoom` — the map auto-fits to all pins when they're absent.
 
 Each location object (the contract the web app reads):
@@ -42,9 +45,17 @@ Each location object (the contract the web app reads):
   "notes": "",
   "tags": ["indoor", "rainy-day"],
   "added_at": "2026-07-21",
-  "geo_precision": "exact"
+  "geo_precision": "exact",
+  "date": null,
+  "date_end": null
 }
 ```
+
+`date` is the day the place is planned for (ISO `YYYY-MM-DD`), and `date_end` the last day when it
+spans several — a hotel stay, a multi-day pass. `null`/absent means "not scheduled yet", which is
+the right default: only set them when the user actually says when. A single-day pin keeps
+`date_end: null`. Dates the user gives day-first (`13.12.26`) or as a bare day ("the 7th", resolved
+against the travel window) must be converted to ISO before writing.
 
 ## Categories (pick exactly one; drives the pin icon + filter)
 
@@ -160,7 +171,8 @@ the rate, do a quick lookup, but don't block on precision.
       If you have no reliable name, fall back to `…?api=1&query=<lat>,<lng>`.
    d. Build a unique **id**: slug of the title; if it collides with an existing id, append
       `-2`, `-3`, …
-   e. Set `rating: null`, `notes: ""`, `added_at` = today's date, `tags` as found.
+   e. Set `rating: null`, `notes: ""`, `added_at` = today's date, `tags` as found, and
+      `date`/`date_end` to `null` unless the user said which day this one is for.
    f. Set **`geo_precision`**: `"exact"` when you pinned a specific address/building (or used
       page-provided coordinates), or `"approximate"` when you could only resolve to a
       neighborhood/ward. The map shows a badge on `"approximate"` pins so the user knows to

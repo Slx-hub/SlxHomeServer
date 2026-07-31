@@ -38,6 +38,15 @@
         </div>
     </div>
 
+    <!-- Shown while a single day is isolated (picked in the calendar tab), so
+         the map's reduced pin set is never a mystery with the drawer closed. -->
+    <div id="day-banner" class="day-banner" hidden>
+        <button id="day-banner-label" class="day-banner-label" type="button"
+                title="Open the calendar"></button>
+        <button id="day-banner-clear" class="day-banner-clear" type="button"
+                title="Show every day again">✕</button>
+    </div>
+
     <div id="toast" class="toast"></div>
 
     <script type="module" src="js/app.js"></script>

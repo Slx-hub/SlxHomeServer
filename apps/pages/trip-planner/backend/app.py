@@ -199,12 +199,177 @@ def _save_trip(name: str, data: dict) -> None:
     os.replace(tmp, path)
 
 
+# ── Dates ────────────────────────────────────────────────────────────────
+# A trip carries its travel window as top-level "start_date"/"end_date", and
+# each location can carry a "date" (the single day it's planned for) plus an
+# optional "date_end" (a range — a hotel stay, a multi-day pass). All of them
+# are plain "YYYY-MM-DD" strings, so the frontend compares them as strings
+# (lexicographic order == chronological) and no timezone can shift a day.
+#
+# Everything that writes a date goes through _normalize_date, because the input
+# is rarely ISO: the user types "13.12.26", "13.12.", or just "the 7th". Bare
+# day-of-month and year-less forms are resolved against the trip's travel
+# window, which is unambiguous for any trip shorter than a month.
+
+_SEP = r"[.\-/]"
+_ISO_DATE_RE = re.compile(rf"^(\d{{4}}){_SEP}(\d{{1,2}}){_SEP}(\d{{1,2}})\.?$")
+_DMY_DATE_RE = re.compile(rf"^(\d{{1,2}}){_SEP}(\d{{1,2}})(?:{_SEP}(\d{{2}}|\d{{4}}))?\.?$")
+_DOM_DATE_RE = re.compile(r"^(\d{1,2})\.?(?:st|nd|rd|th)?\.?$", re.I)
+
+# Guard against a nonsense window ("2026-11-28" → "2099-01-01") blowing up the
+# day list we hand the model / iterate over.
+_MAX_WINDOW_DAYS = 400
+
+
+def _mk_date(year: int, month: int, day: int) -> tuple:
+    try:
+        return datetime.date(year, month, day).isoformat(), None
+    except ValueError:
+        return None, f"{year:04d}-{month:02d}-{day:02d} is not a real date"
+
+
+def _trip_window(data: dict) -> Optional[tuple]:
+    """This trip's travel window as (start, end) date objects, or None if unset
+    or unparseable. An end before the start collapses to a single day."""
+    try:
+        start = datetime.date.fromisoformat(str(data.get("start_date")))
+        end = datetime.date.fromisoformat(str(data.get("end_date")))
+    except (TypeError, ValueError):
+        return None
+    if end < start:
+        return start, start
+    if (end - start).days > _MAX_WINDOW_DAYS:
+        return start, start + datetime.timedelta(days=_MAX_WINDOW_DAYS)
+    return start, end
+
+
+def _window_days(window: Optional[tuple]) -> list:
+    if not window:
+        return []
+    start, end = window
+    return [start + datetime.timedelta(days=i) for i in range((end - start).days + 1)]
+
+
+def _ordinal(n: int) -> str:
+    """1 → '1st', 12 → '12th', 23 → '23rd' — the form users actually type."""
+    suffix = "th" if 11 <= n % 100 <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
+def _normalize_date(raw, window: Optional[tuple] = None) -> tuple:
+    """Loose date string → (iso, None) on success, (None, error) on failure.
+
+    ("", None) is returned for blank input and means "clear this date" — callers
+    treat an empty string as an explicit clear, the same way `rating` does.
+    Accepted: ISO (2026-12-13), day-first European (13.12.2026, 13.12.26,
+    13.12.), and a bare day of month ("13", "13th"). The last two need the trip
+    window to pin down the month/year.
+    """
+    s = str(raw or "").strip().lower()
+    if not s:
+        return "", None
+    days = _window_days(window)
+
+    m = _ISO_DATE_RE.match(s)
+    if m:
+        return _mk_date(*(int(g) for g in m.groups()))
+
+    m = _DMY_DATE_RE.match(s)
+    if m:
+        day, month, year = int(m.group(1)), int(m.group(2)), m.group(3)
+        if year:
+            return _mk_date(int(year) + 2000 if len(year) == 2 else int(year), month, day)
+        # No year given: prefer the one the trip window actually covers.
+        for cand in days:
+            if (cand.day, cand.month) == (day, month):
+                return cand.isoformat(), None
+        for y in sorted({c.year for c in days}) or [datetime.date.today().year]:
+            iso, _ = _mk_date(y, month, day)
+            if iso:
+                return iso, None
+        return None, f"'{raw}' is not a valid date"
+
+    m = _DOM_DATE_RE.match(s)
+    if m:
+        dom = int(m.group(1))
+        if not days:
+            return None, (f"this trip has no travel dates yet, so '{_ordinal(dom)}' is "
+                          "ambiguous — set the trip dates first, or give a full date")
+        hits = [c for c in days if c.day == dom]
+        if len(hits) == 1:
+            return hits[0].isoformat(), None
+        if not hits:
+            return None, (f"the {_ordinal(dom)} is outside this trip "
+                          f"({days[0]} → {days[-1]}) — give a full date")
+        return None, (f"the {_ordinal(dom)} falls {len(hits)} times inside this trip "
+                      "— give a full date like 13.12.2026")
+
+    return None, f"couldn't read '{raw}' as a date — use YYYY-MM-DD or DD.MM.YYYY"
+
+
+def _set_location_dates(loc: dict, date_raw, end_raw, data: dict) -> tuple:
+    """Apply `date`/`date_end` to one location → (changed_fields, warning).
+
+    Each raw value is either None (field not supplied — left untouched), ""
+    (clear it), or a loose date string. An unreadable date never raises: it comes
+    back as a warning with the field left as it was, so a bulk call still lands
+    the parts it understood.
+    """
+    window = _trip_window(data)
+    changed, notes = [], []
+    cleared = False
+    for field, raw in (("date", date_raw), ("date_end", end_raw)):
+        if not isinstance(raw, str):
+            continue
+        iso, err = _normalize_date(raw, window)
+        if err:
+            notes.append(err)
+            continue
+        loc[field] = iso or None
+        changed.append(field)
+        cleared = cleared or (field == "date" and not iso)
+    # "Unschedule this" (date: "") drops the whole span, not just day one — unless
+    # the same call also set a real end date, which means "move it", not "clear it".
+    if cleared and not ("date_end" in changed and loc.get("date_end")):
+        loc["date_end"] = None
+    # An end date on its own isn't a range — promote it to the start day.
+    if loc.get("date_end") and not loc.get("date"):
+        loc["date"], loc["date_end"] = loc["date_end"], None
+    if loc.get("date") and loc.get("date_end"):
+        if loc["date_end"] < loc["date"]:
+            loc["date"], loc["date_end"] = loc["date_end"], loc["date"]
+            notes.append("the end date was before the start — swapped them")
+        elif loc["date_end"] == loc["date"]:
+            loc["date_end"] = None  # a one-day "range" is just a day
+    # Only flag what this call actually wrote — re-reporting a value that was
+    # already stored would muddle the message for the field that just failed.
+    if window:
+        lo, hi = (d.isoformat() for d in window)
+        for field in changed:
+            value = loc.get(field)
+            if value and not lo <= value <= hi:
+                notes.append(f"{value} is outside the trip window ({lo} → {hi})")
+    return changed, "; ".join(notes) or None
+
+
+def _date_label(loc: dict) -> str:
+    """A location's schedule for the model's context block: ISO day or range."""
+    day, end = loc.get("date"), loc.get("date_end")
+    if day and end and end != day:
+        return f"{day}→{end}"
+    return day or "—"
+
+
 # ── Models ───────────────────────────────────────────────────────────────
 
 
 class LocationPatch(BaseModel):
     rating: Optional[str] = None  # one of the trip's rating keys, or "" (clears)
     notes: Optional[str] = None
+    # Schedule. "" clears; any format _normalize_date accepts is fine (the map's
+    # own date inputs send ISO, but this keeps the endpoint as forgiving as chat).
+    date: Optional[str] = None
+    date_end: Optional[str] = None
 
 
 # ── API routes ─────────────────────────────────────────────────────────────
@@ -244,7 +409,7 @@ def get_trip(name: str):
 
 @app.patch("/api/trips/{name}/locations/{loc_id}")
 def patch_location(name: str, loc_id: str, patch: LocationPatch):
-    """Update the browser-editable fields (rating, notes) of one location."""
+    """Update the browser-editable fields (rating, notes, schedule) of one location."""
     with _write_lock:
         data = _load_trip(name)
         if patch.rating:
@@ -261,6 +426,11 @@ def patch_location(name: str, loc_id: str, patch: LocationPatch):
             loc["rating"] = patch.rating or None
         if patch.notes is not None:
             loc["notes"] = patch.notes
+        if patch.date is not None or patch.date_end is not None:
+            changed, warning = _set_location_dates(loc, patch.date, patch.date_end, data)
+            # Nothing landed and we have something to say → the date was unreadable.
+            if not changed:
+                raise HTTPException(status_code=400, detail=warning or "invalid date")
         _save_trip(name, data)
     return loc
 
@@ -772,6 +942,10 @@ def _tool_add_location(name: str, args: dict) -> dict:
             "notes": "",
             "tags": args.get("tags") if isinstance(args.get("tags"), list) else [],
             "added_at": datetime.date.today().strftime("%Y-%m-%d"),
+            # Schedule: the day this is planned for, plus an end day when it
+            # spans several (a hotel stay). Both null = not scheduled yet.
+            "date": None,
+            "date_end": None,
             # "exact" | "approximate" (neighborhood-level) — the frontend shows a
             # badge for "approximate" so the user knows to verify the pin.
             "geo_precision": (
@@ -779,14 +953,18 @@ def _tool_add_location(name: str, args: dict) -> dict:
                 else "approximate" if geo else None
             ),
         }
+        _, date_warning = _set_location_dates(loc, args.get("date"), args.get("date_end"), data)
         data.setdefault("locations", []).append(loc)
         _save_trip(name, data)
 
     result = {"status": "added", "id": loc_id, "title": title,
               "category": category, "cost": loc["cost"] or None,
+              "date": loc["date"], "date_end": loc["date_end"],
               # Explicit signal for the reply guard: a null-coord pin isn't on the
               # map, so the confirmation must say so and ask for an exact location.
               "placed": lat is not None}
+    if date_warning:
+        result["date_warning"] = date_warning
     if lat is None:
         result["warning"] = ("could not confidently geocode (OSM can't place venue "
                              "names or bare cities) — pin hidden until coordinates are "
@@ -825,6 +1003,9 @@ def _tool_update_location(name: str, args: dict) -> dict:
         if isinstance(args.get("tags"), list):
             loc["tags"] = args["tags"]
             changed.append("tags")
+        date_changed, date_warning = _set_location_dates(
+            loc, args.get("date"), args.get("date_end"), data)
+        changed += date_changed
         if geo:
             loc["lat"], loc["lng"] = geo["lat"], geo["lng"]
             # refresh precision — a new exact address clears an old "approximate" badge
@@ -835,12 +1016,90 @@ def _tool_update_location(name: str, args: dict) -> dict:
                 return {"error": ("could not confidently geocode that place_query (OSM "
                                   "can't place venue names or bare cities). Try a street "
                                   "address or neighborhood, or pass raw 'lat, lng'.")}
+            if date_warning:  # the only thing asked for was a date we couldn't read
+                return {"error": date_warning}
             return {"error": "nothing to update"}
         _save_trip(name, data)
     result = {"status": "updated", "id": loc_id, "title": loc.get("title"), "changed": changed}
+    if date_changed:
+        result["date"], result["date_end"] = loc.get("date"), loc.get("date_end")
+    warnings = []
     if geo and not geo.get("precise", True):
-        result["warning"] = "approximate: pinned at neighborhood level, not the exact address."
+        warnings.append("approximate: pinned at neighborhood level, not the exact address.")
+    if date_warning:
+        warnings.append(date_warning)
+    if warnings:
+        result["warning"] = " ".join(warnings)
     return result
+
+
+def _tool_set_dates(name: str, args: dict) -> dict:
+    """Schedule one or more existing pins on a day (or a range) in one call.
+
+    Bulk on purpose: "on 28.11. we do X, Y and Z" and "we stay here from the 28th
+    til the 3rd" are the two shapes users actually say, and doing them in a single
+    tool call keeps the assistant inside its round budget."""
+    ids = args.get("loc_ids")
+    if isinstance(ids, str):
+        ids = [ids]
+    ids = [str(i).strip() for i in (ids or []) if str(i).strip()]
+    if not ids:
+        return {"error": "loc_ids is required (one or more location ids)"}
+    if not isinstance(args.get("date"), str) and not isinstance(args.get("date_end"), str):
+        return {"error": "give a date (and date_end for a stay), or '' to unschedule"}
+
+    with _write_lock:
+        data = _load_trip(name)
+        by_id = {l.get("id"): l for l in data.get("locations", [])}
+        updated, notes = [], []
+        for loc_id in ids:
+            loc = by_id.get(loc_id)
+            if loc is None:
+                continue
+            changed, warning = _set_location_dates(
+                loc, args.get("date"), args.get("date_end"), data)
+            if changed:
+                updated.append({"id": loc_id, "title": loc.get("title"),
+                                "date": loc.get("date"), "date_end": loc.get("date_end")})
+            if warning:
+                notes.append(f"{loc_id}: {warning}")
+        missing = [i for i in ids if i not in by_id]
+        if not updated:
+            return {"error": "; ".join(notes) or f"no pins found with ids {missing}"}
+        _save_trip(name, data)
+
+    result = {"status": "updated", "count": len(updated), "updated": updated}
+    if missing:
+        result["not_found"] = missing
+    if notes:
+        result["warning"] = "; ".join(notes)
+    return result
+
+
+def _tool_set_trip_dates(name: str, args: dict) -> dict:
+    """Set the trip's travel window — the vacation the calendar highlights, and
+    the frame that lets "the 7th" resolve to one exact date."""
+    with _write_lock:
+        data = _load_trip(name)
+        window = _trip_window(data)
+        touched = []
+        for field in ("start_date", "end_date"):
+            raw = args.get(field)
+            if not isinstance(raw, str):
+                continue
+            iso, err = _normalize_date(raw, window)
+            if err:
+                return {"error": f"{field}: {err}"}
+            data[field] = iso or None
+            touched.append(field)
+        if not touched:
+            return {"error": "give start_date and/or end_date, e.g. '2026-11-28'"}
+        if data.get("start_date") and data.get("end_date") \
+                and data["end_date"] < data["start_date"]:
+            data["start_date"], data["end_date"] = data["end_date"], data["start_date"]
+        _save_trip(name, data)
+    return {"status": "updated", "changed": touched,
+            "start_date": data.get("start_date"), "end_date": data.get("end_date")}
 
 
 def _tool_delete_location(name: str, args: dict) -> dict:
@@ -915,6 +1174,7 @@ def _tool_set_rating(name: str, args: dict) -> dict:
 # _reconcile_reply) — fetch_page/focus_location are read-only.
 _MUTATING_TOOLS = {
     "add_location", "update_location", "delete_location", "set_category", "set_rating",
+    "set_dates", "set_trip_dates",
 }
 
 _TOOL_IMPL = {
@@ -924,8 +1184,25 @@ _TOOL_IMPL = {
     "delete_location": _tool_delete_location,
     "set_category": _tool_set_category,
     "set_rating": _tool_set_rating,
+    "set_dates": _tool_set_dates,
+    "set_trip_dates": _tool_set_trip_dates,
     "focus_location": _tool_focus_location,
 }
+
+# Shared wording for every date parameter: the backend normalizes loose input
+# against the trip window, so the model can pass through what the user typed.
+_DATE_PARAM_DESC = (
+    "The day this is planned for. Prefer ISO 'YYYY-MM-DD' resolved from the "
+    "trip-day table in the context block. The backend also accepts day-first "
+    "European ('13.12.2026', '13.12.26', '13.12.') and a bare day of the month "
+    "('13', '13th') and resolves those against the trip's travel window. Pass "
+    "'' to unschedule."
+)
+_DATE_END_PARAM_DESC = (
+    "Last day, only for something that spans several days (a hotel stay, a "
+    "multi-day pass). Same formats as `date`. Omit for a normal single-day pin; "
+    "pass '' to turn a range back into a single day."
+)
 
 _TOOLS = [
     {
@@ -982,6 +1259,8 @@ _TOOLS = [
                     "description": {"type": "string", "description": "One or two sentences."},
                     "source_url": {"type": "string", "description": "URL the place came from."},
                     "tags": {"type": "array", "items": {"type": "string"}},
+                    "date": {"type": "string", "description": _DATE_PARAM_DESC},
+                    "date_end": {"type": "string", "description": _DATE_END_PARAM_DESC},
                 },
                 "required": ["title", "category", "place_query"],
             },
@@ -1019,6 +1298,8 @@ _TOOLS = [
                     },
                     "notes": {"type": "string"},
                     "tags": {"type": "array", "items": {"type": "string"}},
+                    "date": {"type": "string", "description": _DATE_PARAM_DESC},
+                    "date_end": {"type": "string", "description": _DATE_END_PARAM_DESC},
                     "place_query": {
                         "type": "string",
                         "description": (
@@ -1028,6 +1309,58 @@ _TOOLS = [
                     },
                 },
                 "required": ["loc_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_dates",
+            "description": (
+                "Schedule existing pins on a day, or on a date range. This is the tool for "
+                "anything about *when* something happens: 'on the 7th we do teamLab', "
+                "'at 28.11. we do x, y and z' (pass all three ids in one call), 'we stay "
+                "here from the 28th til the 3rd' (date + date_end), 'move this to 13.12.', "
+                "'unschedule this' (date: ''). Prefer this over update_location for dates "
+                "since it takes several pins at once."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "loc_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Ids of the pins to schedule — one, or all of them when the user "
+                            "lists several places for the same day. Use the selected "
+                            "activity's id for 'this'/'here'/'it'."
+                        ),
+                    },
+                    "date": {"type": "string", "description": _DATE_PARAM_DESC},
+                    "date_end": {"type": "string", "description": _DATE_END_PARAM_DESC},
+                },
+                "required": ["loc_ids", "date"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_trip_dates",
+            "description": (
+                "Set the trip's travel window (when the vacation starts and ends). The "
+                "calendar highlights it, and it's what lets 'the 7th' resolve to one exact "
+                "date. Call this when the user says when they're travelling ('we fly out "
+                "28.11. and come back 13.12.') or when the context block says the window "
+                "isn't set yet and they're talking about days."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "start_date": {"type": "string", "description": "First day, ISO 'YYYY-MM-DD' preferred."},
+                    "end_date": {"type": "string", "description": "Last day, ISO 'YYYY-MM-DD' preferred."},
+                },
+                "required": ["start_date", "end_date"],
             },
         },
     },
@@ -1137,6 +1470,29 @@ def _context_block(name: str, data: dict, selected_id: Optional[str]) -> str:
         "## Context",
         f"Open trip: {name} (title: {data.get('title', name)})",
         f"Today: {datetime.date.today():%Y-%m-%d}",
+    ]
+    window = _trip_window(data)
+    days = _window_days(window)
+    if days:
+        lines.append(
+            f"Travel window: {days[0]:%Y-%m-%d (%a)} → {days[-1]:%Y-%m-%d (%a)} "
+            f"({len(days)} days)"
+        )
+        # The lookup table that makes "on the 7th" / "from the 28th til the 3rd"
+        # unambiguous — every day of this trip, keyed by the day-of-month the user
+        # would say. Bare-day input is resolved server-side too, but having the
+        # mapping here means the model can send ISO straight away.
+        lines.append(
+            'Trip days ("the 7th" → the ISO date on the right): '
+            + ", ".join(f"{_ordinal(d.day)}={d:%Y-%m-%d}" for d in days)
+        )
+    else:
+        lines.append(
+            "Travel window: NOT SET. If the user talks about days of the month, ask when "
+            "the trip is (or use dates they state) and call set_trip_dates first — without "
+            "a window, 'the 7th' can't be resolved to a real date."
+        )
+    lines += [
         "Pin types: " + ", ".join(f"{k} ({v['label']} {v['emoji']} {v['color']})" for k, v in cats.items()),
         "Ratings: " + ", ".join(f"{k} ({v['label']} {v['emoji']} {v['color']})" for k, v in ratings.items()),
     ]
@@ -1145,6 +1501,7 @@ def _context_block(name: str, data: dict, selected_id: Optional[str]) -> str:
         lines.append(
             f'Selected activity: id={sel["id"]} | "{sel.get("title")}" | '
             f'category={sel.get("category")} | cost={sel.get("cost") or "—"} | '
+            f'date={_date_label(sel)} | '
             f'source={"yes" if sel.get("source_url") else "no"}'
         )
         lines.append('"this"/"here"/"it" refer to the selected activity above.')
@@ -1152,7 +1509,8 @@ def _context_block(name: str, data: dict, selected_id: Optional[str]) -> str:
         lines.append("No activity is currently selected.")
     lines.append(
         f"Existing locations ({len(locs)}) — use the description/notes/tags to judge "
-        "thematic fit when reclassifying places into a new or different type:"
+        "thematic fit when reclassifying places into a new or different type. `date` is "
+        'the day it\'s scheduled for ("—" = not scheduled yet, "a→b" = a range):'
     )
     for l in locs[:200]:
         desc = (l.get("description") or "")[:160]
@@ -1160,6 +1518,7 @@ def _context_block(name: str, data: dict, selected_id: Optional[str]) -> str:
         lines.append(
             f'  - id={l.get("id")} | "{l.get("title")}" | category={l.get("category")} | '
             f'rating={l.get("rating") or "—"} | cost={l.get("cost") or "—"} | '
+            f'date={_date_label(l)} | '
             f'tags={l.get("tags") or []} | desc="{desc}" | notes="{notes}" | '
             f'src={"y" if l.get("source_url") else "n"}'
         )
@@ -1219,7 +1578,8 @@ class ChatRequest(BaseModel):
 # agent_skill "Good replies" — "Added …", "Updated …", "Set cost …"). Anchoring
 # to the start keeps this from firing on explanatory prose ("To add a place, …").
 _CLAIM_RE = re.compile(
-    r"^\s*(added|updated|set|created|deleted|removed|changed|moved|renamed|pinned|saved)\b",
+    r"^\s*(added|updated|set|created|deleted|removed|changed|moved|renamed|pinned|saved"
+    r"|scheduled|booked|planned|unscheduled)\b",
     re.I,
 )
 
