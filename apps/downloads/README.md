@@ -3,7 +3,7 @@
 Stable public URLs for the newest release asset of a Gitea repo.
 
 ```
-https://slakxs.de/download/cykle          → streams the newest Cykle*.zip
+https://slakxs.de/download/cykle          → streams the newest full-release Cykle*.zip
 https://slakxs.de/download/cykle/info     → JSON: tag, filename, size, published_at
 https://slakxs.de/download/cykle/versions → JSON: every pinnable tag, newest first
 ```
@@ -18,9 +18,10 @@ https://slakxs.de/download/cykle/0.0.1/info   → JSON for that release
 ```
 
 A leading `v` is optional in both directions, so `/0.0.1` finds a release tagged
-`v0.0.1` and vice versa. Pinning ignores the target's `prerelease` setting —
-naming the tag is explicit enough. `/versions` lists exactly the tags that
-resolve, i.e. those carrying an asset that matches the pattern.
+`v0.0.1` and vice versa. Pinning ignores the target's prerelease policy — naming
+the tag is explicit enough, so this is also how you reach a prerelease.
+`/versions` lists exactly the tags that resolve, i.e. those carrying an asset
+that matches the pattern, each flagged with `prerelease`.
 
 Unknown tags 404 rather than silently falling back to latest, so a stale link in
 a changelog fails loudly. The lookup walks up to 100 releases back (`/versions`
@@ -38,9 +39,9 @@ either: Gitea attaches assets to the release, not the tag, so every build would
 have to re-upload the same archive to a second `latest` release.
 
 Instead this service queries `/api/v1/repos/{owner}/{repo}/releases`, picks the
-newest non-draft release that actually carries a matching asset (or the one
-whose tag was requested), and streams the bytes through. Range requests are
-forwarded, so downloads are resumable.
+newest non-draft, non-prerelease release that actually carries a matching asset
+(or the one whose tag was requested), and streams the bytes through. Range
+requests are forwarded, so downloads are resumable.
 
 ## Adding a download
 
@@ -53,8 +54,9 @@ DOWNLOADS = {
 ```
 
 `asset` is an `fnmatch` pattern matched case-insensitively, so versioned
-filenames (`Cykle-1.2.3.zip`) keep working. Set `prerelease=False` on a target
-to make it ignore prereleases.
+filenames (`Cykle-1.2.3.zip`) keep working. The bare slug resolves to full
+releases only; set `allow_prerelease=True` on a target if its prereleases should
+count as latest too.
 
 That dict is the security boundary: only the listed repos are reachable, and
 only via their asset pattern. **The repo must be public in Gitea** — the API is

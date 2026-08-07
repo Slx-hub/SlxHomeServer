@@ -1,7 +1,7 @@
 """Public release downloads.
 
 Maps a stable public URL (slakxs.de/download/<slug>) onto the newest matching
-release asset in Gitea, or onto a specific tag with
+full-release asset in Gitea, or onto a specific tag — prerelease or not — with
 slakxs.de/download/<slug>/<version> when the newest one is broken.
 
 Why a service instead of a Caddy rewrite: Gitea has no GitHub-style
@@ -30,8 +30,9 @@ GITEA_URL = os.environ.get("GITEA_URL", "http://gitea:3000")
 # How long a resolved release is reused before we ask Gitea again.
 CACHE_TTL = int(os.environ.get("CACHE_TTL", "60"))
 # Releases per API page, and how many pages we are willing to walk. Resolving
-# "latest" only ever needs the first page; a pinned version may be far enough
-# back in the history that we have to keep paging to find it.
+# "latest" on a target that accepts prereleases only ever needs the first page;
+# skipping prereleases, or finding a pinned version, may have to page further
+# back through the history.
 PAGE_SIZE = 20
 LATEST_PAGES = 1
 VERSION_PAGES = 5
@@ -42,7 +43,10 @@ class Target:
     owner: str
     repo: str
     asset: str  # fnmatch pattern, matched case-insensitively
-    prerelease: bool = True  # let prereleases count as "latest"
+    # Whether a prerelease may answer /download/<slug>. Off by default: the
+    # bare URL is the one handed to end users, so it points at the newest full
+    # release. Prereleases stay reachable by pinning their tag.
+    allow_prerelease: bool = False
 
 
 # Public download slugs. This dict is the security boundary: only the repos
@@ -144,21 +148,25 @@ async def resolve(
 ) -> dict:
     """Release of `target` carrying a matching asset.
 
-    Without `version` that is the newest one; with it, the release whose tag
-    matches, so a client can pin an older build when the newest is broken. A
-    pinned version ignores the target's prerelease policy — asking for the tag
-    by name is explicit enough.
+    Without `version` that is the newest full release — a prerelease only
+    answers the bare slug on a target that opts into it. With `version`, the
+    release whose tag matches, so a client can pin an older build when the
+    newest is broken; that ignores the prerelease policy entirely, since asking
+    for the tag by name is explicit enough.
     """
     cached = _cache.get((slug, version))
     now = time.monotonic()
     if cached and now - cached[0] < CACHE_TTL:
         return cached[1]
 
-    pages = LATEST_PAGES if version is None else VERSION_PAGES
+    # One page is enough only when any release will do; otherwise the newest
+    # full release can sit behind a run of prereleases.
+    stable_only = version is None and not target.allow_prerelease
+    pages = LATEST_PAGES if (version is None and not stable_only) else VERSION_PAGES
     releases = await fetch_releases(target, client, pages)
 
     if version is None:
-        if not target.prerelease:
+        if stable_only:
             releases = [r for r in releases if not r.get("prerelease")]
     else:
         wanted = normalize_tag(version)
@@ -177,6 +185,12 @@ async def resolve(
 
     if version is not None:
         raise HTTPException(404, f"release {version!r} carries no matching asset")
+    if stable_only:
+        # Likely a repo that has only ever shipped prereleases; say so rather
+        # than quietly serving one, since those are still pinnable by tag.
+        raise HTTPException(
+            404, "no full release carries a matching asset — see /versions"
+        )
     raise HTTPException(404, "no release asset matches this download")
 
 
