@@ -48,6 +48,15 @@ slakxs.de {
         reverse_proxy mainpage:50000
     }
 
+    # Public release downloads — /download/<slug> streams the newest matching
+    # release asset out of Gitea. Deliberately outside the cookie gate: it is
+    # the only anonymous window into git.slakxs.de, and the downloads service
+    # restricts it to a hardcoded slug -> repo/asset whitelist.
+    handle /download* {
+        uri strip_prefix /download
+        reverse_proxy downloads:50005
+    }
+
     # Authentication endpoint - always accessible
     import cookie
 

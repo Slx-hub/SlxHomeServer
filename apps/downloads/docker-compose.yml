@@ -1,0 +1,26 @@
+services:
+  downloads:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:50005/healthz', timeout=3).getcode()==200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    ports:
+      - "50005:50005"
+    environment:
+      # Reached over main-network, so no auth gate in front of it.
+      GITEA_URL: http://gitea:3000
+      # Seconds a resolved release is reused before re-querying the Gitea API.
+      CACHE_TTL: ${DOWNLOADS_CACHE_TTL:-60}
+    networks:
+      - main-network
+
+networks:
+  main-network:
+    external: true
+    name: main-network
