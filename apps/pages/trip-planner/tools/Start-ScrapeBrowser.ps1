@@ -130,20 +130,29 @@ if (-not $SkipTunnel) {
     # "remote port forwarding failed for listen port $Port".
     # Filter written without quotes: ss takes the trailing tokens as the expression,
     # which avoids a second layer of shell quoting through ssh.
+    #
+    # -o ClearAllForwardings=yes is essential, not tidiness: $SshHost carries the
+    # RemoteForward, so without it this very connection binds $Port on the server
+    # before running the check — and the check then reports the port held by
+    # itself, every single time.
+    $noFwd      = @("-o", "ClearAllForwardings=yes")
     $checkCmd   = "ss -ltn sport = :$Port 2>/dev/null | tail -n +2"
-    $remoteHeld = & ssh.exe $SshHost $checkCmd 2>$null
+    $remoteHeld = & ssh.exe @noFwd $SshHost $checkCmd 2>$null
 
     if ($remoteHeld) {
         if ($ForceRemote) {
             Write-Host "Port $Port held on the server — clearing the stale forward..." -ForegroundColor Yellow
             # Single-quoted in PowerShell so $(...) and $pid reach the remote shell
             # intact. Only ever kills the process bound to this exact port.
-            $killCmd = 'pid=$(ss -ltnp sport = :PORT 2>/dev/null | grep -o "pid=[0-9]*" | head -1 | cut -d= -f2); if [ -n "$pid" ]; then kill "$pid" && echo "killed $pid"; else echo "no owner found"; fi'
+            # sudo is required for the -p column: a forward is owned by an sshd
+            # session process that plain `ss -ltnp` will not attribute, so without
+            # it the owner always comes back empty.
+            $killCmd = 'pid=$(sudo -n ss -ltnp sport = :PORT 2>/dev/null | grep -o "pid=[0-9]*" | head -1 | cut -d= -f2); if [ -n "$pid" ]; then sudo -n kill "$pid" && echo "killed pid $pid"; else echo "port is bound but has no identifiable owner - not a stale forward"; fi'
             $killCmd = $killCmd -replace 'PORT', $Port
-            & ssh.exe $SshHost $killCmd | ForEach-Object { Write-Host "  $_" -ForegroundColor DarkGray }
+            & ssh.exe @noFwd $SshHost $killCmd | ForEach-Object { Write-Host "  $_" -ForegroundColor DarkGray }
             Start-Sleep -Seconds 1
 
-            if (& ssh.exe $SshHost $checkCmd 2>$null) {
+            if (& ssh.exe @noFwd $SshHost $checkCmd 2>$null) {
                 Write-Error "Port $Port is still held on the server after the kill. Inspect it there with: ss -ltnp sport = :$Port"
                 exit 1
             }

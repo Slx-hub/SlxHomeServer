@@ -16,6 +16,7 @@
 #   --updates          Enable automatic security updates
 #   --aliases          Deploy shell aliases
 #   --backup           Install backup service and timer
+#   --sshd             Configure sshd keepalive (reaps dead sessions/forwards)
 #   --help             Show this help message
 
 set -euo pipefail
@@ -28,6 +29,7 @@ ENABLE_FAIL2BAN=false
 ENABLE_UPDATES=false
 DEPLOY_ALIASES=false
 INSTALL_BACKUP=false
+CONFIGURE_SSHD=false
 
 show_help() {
     grep "^# " "$0" | grep -E "^\# (Usage|Options|  --)" | sed 's/^# //'
@@ -42,6 +44,7 @@ if [ $# -eq 0 ]; then
     ENABLE_UPDATES=true
     DEPLOY_ALIASES=true
     INSTALL_BACKUP=true
+    CONFIGURE_SSHD=true
 else
     # Parse provided arguments
     for arg in "$@"; do
@@ -54,6 +57,7 @@ else
                 ENABLE_UPDATES=true
                 DEPLOY_ALIASES=true
                 INSTALL_BACKUP=true
+                CONFIGURE_SSHD=true
                 ;;
             --packages)
                 INSTALL_PACKAGES=true
@@ -75,6 +79,9 @@ else
                 ;;
             --backup)
                 INSTALL_BACKUP=true
+                ;;
+            --sshd)
+                CONFIGURE_SSHD=true
                 ;;
             --help)
                 show_help
@@ -239,6 +246,44 @@ if [ "$INSTALL_BACKUP" = true ]; then
     fi
 else
     echo "~~ Skipping backup installation (--backup not specified)"
+fi
+
+# ── sshd keepalive ──────────────────────────────────────────────────────────
+# Debian ships ClientAliveInterval 0, so sshd never probes its clients: a session
+# whose client vanished (dropped wifi, suspend, killed terminal) lives on forever.
+# Any port it reverse-forwarded stays bound with it, and the next tunnel onto that
+# port fails with "remote port forwarding failed". 30s x 3 reaps those in ~90s.
+#
+# Written as a drop-in: sshd_config includes sshd_config.d/*.conf on line 12,
+# before its own settings, and sshd honours the first value it reads for a keyword.
+# Idempotent — the file is overwritten wholesale on every run.
+if [ "$CONFIGURE_SSHD" = true ]; then
+    echo "==> Configuring sshd keepalive..."
+    SSHD_DROPIN="/etc/ssh/sshd_config.d/10-slx-keepalive.conf"
+
+    sudo tee "$SSHD_DROPIN" >/dev/null <<'EOF'
+# Managed by SlxHomeServer setup/setup.sh — do not edit by hand.
+# Reap sessions whose client is gone so their forwarded ports are released.
+ClientAliveInterval 30
+ClientAliveCountMax 3
+EOF
+    sudo chmod 644 "$SSHD_DROPIN"
+
+    # Validate before reloading. An invalid config would stop sshd from coming
+    # back, which on a headless box means locking everyone out — so on failure,
+    # roll the drop-in back and leave the running sshd untouched.
+    if sudo sshd -t; then
+        # reload, not restart: existing sessions (including this one) survive.
+        sudo systemctl reload ssh
+        echo "==> sshd reloaded. Effective values:"
+        sudo sshd -T | grep -Ei 'clientaliveinterval|clientalivecountmax' | sed 's/^/    /'
+    else
+        echo "ERROR: sshd config test failed — removing drop-in, sshd left untouched." >&2
+        sudo rm -f "$SSHD_DROPIN"
+        exit 1
+    fi
+else
+    echo "~~ Skipping sshd keepalive configuration (--sshd not specified)"
 fi
 
 echo ""
