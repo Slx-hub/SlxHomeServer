@@ -173,6 +173,18 @@ the rate, do a quick lookup, but don't block on precision.
       `-2`, `-3`, …
    e. Set `rating: null`, `notes: ""`, `added_at` = today's date, `tags` as found, and
       `date`/`date_end` to `null` unless the user said which day this one is for.
+
+   e2. Set **`needs_review: true`** (plus a short `review_reason`) when the source page
+      couldn't be read (bot wall, JS-only shell, dead link) or you could only resolve the
+      location to a neighborhood/centroid. Otherwise omit it, or set `false`. That queues
+      the pin for the `review-pins` skill, which re-reads it with a real browser later, and
+      surfaces it under the map's "Needs review" filter.
+
+      It is **not** a rating — it says nothing about whether the user wants to go, and it
+      must never replace or clear their `rating`. Add the pin either way: never drop a link,
+      and never guess an address to avoid the flag. A failed fetch means review even when
+      the geocoder sounded confident — `geo_precision` reports how precisely the *query*
+      resolved, not whether the query was real.
    f. Set **`geo_precision`**: `"exact"` when you pinned a specific address/building (or used
       page-provided coordinates), or `"approximate"` when you could only resolve to a
       neighborhood/ward. The map shows a badge on `"approximate"` pins so the user knows to

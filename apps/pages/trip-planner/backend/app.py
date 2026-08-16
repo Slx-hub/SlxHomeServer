@@ -27,6 +27,9 @@ from typing import Optional
 
 import httpx
 from bs4 import BeautifulSoup
+# Page fetching only (see _IMPERSONATE); httpx still serves the geocoders and
+# the model API, where a browser fingerprint buys nothing.
+from curl_cffi import requests as cffi_requests
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -69,6 +72,13 @@ _DEFAULT_RATINGS = {
     "maybe": {"label": "Maybe",      "emoji": "🤔", "color": "#ffc107"},
     "nah":   {"label": "Nah",        "emoji": "🚫", "color": "#f44336"},
 }
+
+# Verification state lives in its own `needs_review` flag rather than in the
+# rating scale: a rating is the user's opinion of a place, while this is a fact
+# about the data quality behind the pin. Keeping them apart means flagging a pin
+# never overwrites a want/maybe/nah the user chose, and the two can coexist —
+# a pin can be "want to do" *and* still need its address verified.
+_REVIEW_FIELD = "needs_review"
 
 
 def _effective_categories(data: dict) -> dict:
@@ -197,6 +207,34 @@ def _save_trip(name: str, data: dict) -> None:
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2))
     os.replace(tmp, path)
+
+
+def _mark_review(name: str, loc_ids: list, reason: str = "") -> list:
+    """Flag the given pins as needing review. Idempotent; returns ids changed.
+
+    Used when the source page could not be read: every field on such a pin comes
+    from the URL slug at best, so nothing about it is trustworthy — including a
+    coordinate the geocoder returned with full confidence. geo_precision
+    describes how precisely the *query* resolved, not whether the query was real.
+
+    The pin's rating is deliberately untouched — this says nothing about whether
+    the user wants to go.
+    """
+    ids = {i for i in (loc_ids or []) if i}
+    if not ids:
+        return []
+    changed = []
+    with _write_lock:
+        data = _load_trip(name)
+        for l in data.get("locations", []):
+            if l.get("id") in ids and not l.get(_REVIEW_FIELD):
+                l[_REVIEW_FIELD] = True
+                if reason:
+                    l["review_reason"] = reason
+                changed.append(l["id"])
+        if changed:
+            _save_trip(name, data)
+    return changed
 
 
 # ── Dates ────────────────────────────────────────────────────────────────
@@ -502,7 +540,17 @@ def _bump_usage(n: int) -> None:
 
 # --- Network helpers: fetch a page + geocode (with basic SSRF guard) --------
 
+# Honest identifying UA, used for the geocoding APIs. Nominatim's usage policy
+# requires one, so this must NOT be swapped for a browser string.
 _UA = "SlxTripPlanner/1.0 (slakxs.de)"
+
+# Page fetching is different: sites like getyourguide reject us on the TLS
+# handshake, before any header is read, so a browser User-Agent alone changes
+# nothing. curl_cffi replays a real Chrome JA3 fingerprint, which turns a 403
+# into the full page. It cannot help with client-rendered sites (airbnb) or
+# harder walls (booking, tripadvisor) — those still need the CDP tunnel that
+# tools/extract_page.py falls back to.
+_IMPERSONATE = "chrome"
 
 
 def _is_public_url(url: str) -> bool:
@@ -571,22 +619,27 @@ def _looks_blocked(title: str, text: str) -> bool:
 
 
 def _fetch_once(url: str) -> dict:
-    """One fetch attempt → {final_url, title, text} or {error}. Validates every hop."""
+    """One fetch attempt → {final_url, title, text} or {error}. Validates every hop.
+
+    Redirects are followed by hand rather than by the client so that every hop is
+    re-checked against _is_public_url — an open redirect to 169.254.169.254 or a
+    LAN address would otherwise walk straight past the SSRF guard.
+    """
     cur = url
     try:
-        with httpx.Client(follow_redirects=False, timeout=15,
-                          headers={"User-Agent": _UA}) as client:
+        with cffi_requests.Session(impersonate=_IMPERSONATE, timeout=15,
+                                   allow_redirects=False) as client:
             for _ in range(6):
                 if not _is_public_url(cur):
                     return {"error": "URL not allowed"}
                 r = client.get(cur)
-                if r.is_redirect and "location" in r.headers:
-                    cur = str(httpx.URL(cur).join(r.headers["location"]))
+                if r.status_code in (301, 302, 303, 307, 308) and r.headers.get("location"):
+                    cur = urllib.parse.urljoin(cur, r.headers["location"])
                     continue
                 break
             else:
                 return {"error": "too many redirects"}
-    except httpx.HTTPError as e:
+    except Exception as e:  # curl_cffi raises a family of CurlError subclasses
         return {"error": f"fetch failed: {e}"}
 
     if r.status_code >= 400:
@@ -952,7 +1005,16 @@ def _tool_add_location(name: str, args: dict) -> dict:
                 "exact" if (geo and geo.get("precise", True))
                 else "approximate" if geo else None
             ),
+            # Missing or neighborhood-level coordinates mean the pin isn't
+            # trustworthy yet. A blocked source page sets the same flag from the
+            # chat route, which is the case this can't see from here.
+            _REVIEW_FIELD: geo is None or not geo.get("precise", True),
         }
+        if loc[_REVIEW_FIELD]:
+            loc["review_reason"] = (
+                "no coordinates — geocoder could not place it" if geo is None
+                else "neighborhood-level coordinates only"
+            )
         _, date_warning = _set_location_dates(loc, args.get("date"), args.get("date_end"), data)
         data.setdefault("locations", []).append(loc)
         _save_trip(name, data)
@@ -1462,6 +1524,27 @@ def _system_prompt() -> str:
     return _SKILL_CACHE
 
 
+def _selected_loc(data: dict, selected_id: Optional[str]) -> Optional[dict]:
+    """The location the user currently has open, if it still exists."""
+    if not selected_id:
+        return None
+    return next((l for l in data.get("locations", [])
+                 if l.get("id") == selected_id), None)
+
+
+def _selection_banner(sel: dict) -> str:
+    """Restated next to the user's message so the selection beats conversational
+    recency. Without it the model resolves "this" against whatever pin was
+    discussed a turn or two ago, which is the wrong pin as soon as the user taps
+    a different one."""
+    return (
+        f'[The user currently has "{sel.get("title")}" (id={sel.get("id")}) selected on the '
+        f"map. If this message says \"this\"/\"here\"/\"it\", or names no place at all, it is "
+        f"about THIS pin — not any pin from earlier in the conversation. Use id="
+        f"{sel.get('id')}. Only an explicitly named different place overrides this.]"
+    )
+
+
 def _context_block(name: str, data: dict, selected_id: Optional[str]) -> str:
     locs = data.get("locations", [])
     cats = _effective_categories(data)
@@ -1496,7 +1579,7 @@ def _context_block(name: str, data: dict, selected_id: Optional[str]) -> str:
         "Pin types: " + ", ".join(f"{k} ({v['label']} {v['emoji']} {v['color']})" for k, v in cats.items()),
         "Ratings: " + ", ".join(f"{k} ({v['label']} {v['emoji']} {v['color']})" for k, v in ratings.items()),
     ]
-    sel = next((l for l in locs if l.get("id") == selected_id), None) if selected_id else None
+    sel = _selected_loc(data, selected_id)
     if sel:
         lines.append(
             f'Selected activity: id={sel["id"]} | "{sel.get("title")}" | '
@@ -1504,7 +1587,13 @@ def _context_block(name: str, data: dict, selected_id: Optional[str]) -> str:
             f'date={_date_label(sel)} | '
             f'source={"yes" if sel.get("source_url") else "no"}'
         )
-        lines.append('"this"/"here"/"it" refer to the selected activity above.')
+        lines.append(
+            '"this"/"here"/"it" refer to the selected activity above. The selection is '
+            "the user's current focus and OUTRANKS anything discussed earlier in the "
+            "conversation: if a message doesn't name a place, it is about the selected "
+            "pin, never about a pin from a previous turn. Only an explicitly named "
+            "different place beats the selection."
+        )
     else:
         lines.append("No activity is currently selected.")
     lines.append(
@@ -1637,7 +1726,17 @@ def chat(req: ChatRequest):
     for turn in (req.history or [])[-6:]:
         if turn.role in ("user", "assistant") and turn.content:
             messages.append({"role": turn.role, "content": turn.content})
-    messages.append({"role": "user", "content": message})
+
+    # The selection also sits in the context block, but that block is far away by
+    # the time the model reads the message: a system prompt, up to 200 location
+    # lines and six history turns earlier. Recency wins, so a pin discussed two
+    # turns ago would hijack "this". Restating the selection immediately next to
+    # the message is what actually makes it stick.
+    sel = _selected_loc(data, req.selected_id)
+    if sel:
+        messages.append({"role": "user", "content": _selection_banner(sel) + "\n\n" + message})
+    else:
+        messages.append({"role": "user", "content": message})
 
     chatlog.info("─" * 68)
     chatlog.info(
@@ -1663,6 +1762,11 @@ def chat(req: ChatRequest):
     # "Added …" reply when no tool actually changed anything.
     turn_actions: list = []
     blocked_fetch = False
+    # Broader than blocked_fetch: also true when the fetch failed outright
+    # (403, timeout, non-HTML). _fetch_page returns those as a bare {"error"}
+    # with no "note", so blocked_fetch alone misses them — and a hard 403 is
+    # the single most common way a pin ends up built from nothing but its URL.
+    fetch_failed = False
     try:
         for round_no in range(1, MAX_TOOL_ROUNDS + 1):
             chatlog.debug("↑ round %d → model (%d messages)", round_no, len(messages))
@@ -1703,8 +1807,14 @@ def chat(req: ChatRequest):
                 chatlog.info("   ↳ %s → %s", fn, _short(result, 1000))
                 if fn in _MUTATING_TOOLS:
                     turn_actions.append((fn, result))
-                elif fn == "fetch_page" and isinstance(result, dict) and result.get("note"):
-                    blocked_fetch = True
+                elif fn == "fetch_page" and isinstance(result, dict):
+                    # "note" = soft wall (challenge page / JS-only shell) — that one
+                    # also rewrites the reply. "error" = hard failure, which already
+                    # has its own reply wording, but counts just as much for review.
+                    if result.get("note"):
+                        blocked_fetch = True
+                    if result.get("note") or result.get("error"):
+                        fetch_failed = True
                 if (isinstance(result, dict)
                         and ((fn == "add_location" and result.get("status") in ("added", "duplicate"))
                              or (fn == "focus_location" and result.get("status") == "focus"))):
@@ -1725,6 +1835,17 @@ def chat(req: ChatRequest):
         raise
     finally:
         _bump_usage(model_calls)
+
+    # Unreadable source page → anything added this turn is guesswork, so park it
+    # in review. Done here rather than in _tool_add_location because only the
+    # tool loop sees that the fetch failed.
+    if fetch_failed:
+        marked = _mark_review(name, [
+            r.get("id") for fn, r in turn_actions
+            if fn == "add_location" and isinstance(r, dict) and r.get("status") == "added"
+        ], reason="source page could not be read — fields inferred from the link")
+        if marked:
+            chatlog.info("🔍 flagged for review (source page unreadable): %s", ", ".join(marked))
 
     corrected = _reconcile_reply(reply, turn_actions, blocked_fetch, focus_id)
     if corrected != reply:

@@ -32,3 +32,12 @@ export const DEFAULT_RATINGS = {
 
 /** Pseudo-key used by the rating filter for locations with no rating yet. */
 export const UNRATED = 'unrated';
+
+/**
+ * Pins whose source page couldn't be read, or that only geocoded vaguely,
+ * carry `needs_review: true` (set by the backend, cleared by the review-pins
+ * skill). It is deliberately NOT a rating: a rating is the user's opinion of a
+ * place, this is a fact about the data behind the pin, and a pin can be both
+ * "want to do" and unverified.
+ */
+export const REVIEW = { label: 'Needs review', emoji: '🔍', color: '#42a5f5' };

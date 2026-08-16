@@ -1,8 +1,9 @@
 /**
- * Filter panel: toggle chips for category (type) and rating. Emits a change
- * whenever the active set shifts; the app turns `predicate()` into a map filter.
+ * Filter panel: toggle chips for category (type) and rating, plus a "needs
+ * review" switch. Emits a change whenever the active set shifts; the app turns
+ * `predicate()` into a map filter.
  */
-import { DEFAULT_CATEGORIES, DEFAULT_RATINGS, UNRATED } from './config.js';
+import { DEFAULT_CATEGORIES, DEFAULT_RATINGS, UNRATED, REVIEW } from './config.js';
 
 export class Filters {
     constructor(panelEl, { onChange }) {
@@ -10,9 +11,17 @@ export class Filters {
         this.onChange = onChange;
         this.activeCats = new Set();
         this.activeRatings = new Set();
+        // Narrows to unverified pins only. Unlike the chips above — which are
+        // inclusive, one per possible value — this is a single switch, so it
+        // restricts rather than adds. Off means "no opinion", not "hide them".
+        this.reviewOnly = false;
         // Overwritten per-trip in mount() with the trip's own taxonomy.
         this.categories = DEFAULT_CATEGORIES;
         this.ratings = DEFAULT_RATINGS;
+    }
+
+    _needsReview(loc) {
+        return !!loc.needs_review;
     }
 
     _normCat(loc) {
@@ -39,11 +48,13 @@ export class Filters {
         this._lastLocations = locations;
         const catCounts = {};
         const ratingCounts = {};
+        let reviewCount = 0;
         for (const key of this._ratingKeys()) ratingCounts[key] = 0;
         for (const loc of locations) {
             const c = this._normCat(loc);
             catCounts[c] = (catCounts[c] || 0) + 1;
             ratingCounts[this._normRating(loc)]++;
+            if (this._needsReview(loc)) reviewCount++;
         }
 
         const presentCats = Object.keys(this.categories).filter((k) => catCounts[k]);
@@ -51,7 +62,11 @@ export class Filters {
         if (reset) {
             this.activeCats = new Set(presentCats);
             this.activeRatings = new Set(this._ratingKeys());
+            this.reviewOnly = false;
         }
+        // Nothing to review → drop the switch entirely rather than show a dead
+        // "0" chip, and make sure a stale filter can't hide the whole map.
+        if (!reviewCount) this.reviewOnly = false;
 
         const catChips = presentCats.map((key) => {
             const c = this.categories[key];
@@ -77,7 +92,21 @@ export class Filters {
             );
         }).join('');
 
+        const reviewChip = reviewCount
+            ? `<div class="filter-group">` +
+                  `<div class="filter-head"><span>Data quality</span></div>` +
+                  `<div class="chips">` +
+                      `<button class="chip ${this.reviewOnly ? 'on' : ''}" data-kind="review" ` +
+                      `style="--chip:${REVIEW.color}" type="button" ` +
+                      `title="Pins whose source page couldn't be read, or that only resolved to a neighborhood. Tap to show only these.">` +
+                      `${REVIEW.emoji} ${REVIEW.label}` +
+                      `<span class="chip-count">${reviewCount}</span></button>` +
+                  `</div>` +
+              `</div>`
+            : '';
+
         this.el.innerHTML =
+            reviewChip +
             `<div class="filter-group">` +
                 `<div class="filter-head"><span>Rating</span>` +
                     `<button class="mini" data-all="rating" type="button">all</button></div>` +
@@ -95,6 +124,12 @@ export class Filters {
     _wire(presentCats) {
         this.el.querySelectorAll('.chip').forEach((btn) => {
             btn.addEventListener('click', () => {
+                if (btn.dataset.kind === 'review') {
+                    this.reviewOnly = !this.reviewOnly;
+                    btn.classList.toggle('on');
+                    this.onChange();
+                    return;
+                }
                 const set = btn.dataset.kind === 'cat' ? this.activeCats : this.activeRatings;
                 const key = btn.dataset.key;
                 if (set.has(key)) set.delete(key); else set.add(key);
@@ -121,6 +156,7 @@ export class Filters {
     predicate() {
         return (loc) =>
             this.activeCats.has(this._normCat(loc)) &&
-            this.activeRatings.has(this._normRating(loc));
+            this.activeRatings.has(this._normRating(loc)) &&
+            (!this.reviewOnly || this._needsReview(loc));
     }
 }

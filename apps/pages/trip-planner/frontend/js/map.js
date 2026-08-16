@@ -338,6 +338,9 @@ export class TripMap {
                 (loc.geo_precision === 'approximate'
                     ? `<p class="pop-approx" title="This pin was placed at neighborhood level, not the exact address. Ask the assistant to refine it with a street address.">📍 Approximate location — neighborhood only</p>`
                     : '') +
+                (loc.needs_review
+                    ? `<p class="pop-approx" title="${esc(loc.review_reason || 'Queued for verification.')}">🔍 Unverified — queued for review</p>`
+                    : '') +
                 `<div class="pop-links">` +
                     `<a class="pop-link gmaps" href="${esc(gmapsUrl(loc))}" target="_blank" rel="noopener">🧭 Google Maps</a>` +
                     (loc.source_url

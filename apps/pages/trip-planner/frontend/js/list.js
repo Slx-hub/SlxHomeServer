@@ -154,6 +154,9 @@ export class TripList {
                               `</span>`
                             : '') +
                     `</span>` +
+                    (loc.needs_review
+                        ? `<span class="list-rating" title="${esc(loc.review_reason || 'Queued for verification.')}">🔍</span>`
+                        : '') +
                     (r ? `<span class="list-rating" title="${esc(r.label)}">${r.emoji}</span>` : '') +
                 `</button>`
             );
