@@ -56,7 +56,8 @@ param(
     [string]$Browser = "auto",
     [string]$ProfileDir = "$env:USERPROFILE\chrome-scrape",
     [string]$SshHost = "SlxHomeServer-cdp",
-    [switch]$SkipTunnel
+    [switch]$SkipTunnel,
+    [switch]$ForceRemote
 )
 
 $ErrorActionPreference = "Stop"
@@ -122,6 +123,39 @@ if (-not $SkipTunnel) {
         Write-Host "    ExitOnForwardFailure yes"
         exit 1
     }
+
+    # The server-side port must be free. sshd keeps a forward bound when its client
+    # dies without closing cleanly (dropped wifi, sleep, killed terminal) — the
+    # listener outlives the connection and the next attempt fails with
+    # "remote port forwarding failed for listen port $Port".
+    # Filter written without quotes: ss takes the trailing tokens as the expression,
+    # which avoids a second layer of shell quoting through ssh.
+    $checkCmd   = "ss -ltn sport = :$Port 2>/dev/null | tail -n +2"
+    $remoteHeld = & ssh.exe $SshHost $checkCmd 2>$null
+
+    if ($remoteHeld) {
+        if ($ForceRemote) {
+            Write-Host "Port $Port held on the server — clearing the stale forward..." -ForegroundColor Yellow
+            # Single-quoted in PowerShell so $(...) and $pid reach the remote shell
+            # intact. Only ever kills the process bound to this exact port.
+            $killCmd = 'pid=$(ss -ltnp sport = :PORT 2>/dev/null | grep -o "pid=[0-9]*" | head -1 | cut -d= -f2); if [ -n "$pid" ]; then kill "$pid" && echo "killed $pid"; else echo "no owner found"; fi'
+            $killCmd = $killCmd -replace 'PORT', $Port
+            & ssh.exe $SshHost $killCmd | ForEach-Object { Write-Host "  $_" -ForegroundColor DarkGray }
+            Start-Sleep -Seconds 1
+
+            if (& ssh.exe $SshHost $checkCmd 2>$null) {
+                Write-Error "Port $Port is still held on the server after the kill. Inspect it there with: ss -ltnp sport = :$Port"
+                exit 1
+            }
+            Write-Host "Server port $Port released." -ForegroundColor Green
+        } else {
+            Write-Warning "Port $Port is already bound on the server — the tunnel would fail with 'remote port forwarding failed'."
+            Write-Host "Usually a forward left behind by an SSH client that died without closing cleanly." -ForegroundColor Yellow
+            Write-Host "Re-run with -ForceRemote to clear it, or inspect it by hand:" -ForegroundColor Yellow
+            Write-Host "  ssh $SshHost `"ss -ltnp sport = :$Port`"" -ForegroundColor Yellow
+            exit 1
+        }
+    }
 }
 
 # ── Start the browser (or reuse one already listening) ───────────────────
@@ -185,14 +219,21 @@ Write-Host ""
 
 # Foreground on purpose: the tunnel's lifetime is this window, so there's no
 # orphaned forward left holding the port on the server for the next run.
+$startedAt = Get-Date
 & ssh.exe -N $SshHost
-$code = $LASTEXITCODE
+$code    = $LASTEXITCODE
+$elapsed = ((Get-Date) - $startedAt).TotalSeconds
 
 Write-Host ""
-if ($code -eq 0 -or $code -eq 255) {
-    # 255 is the normal exit when the connection is closed by Ctrl+C.
-    Write-Host "Tunnel closed." -ForegroundColor Green
+# Ctrl+C and a rejected forward both exit 255, so the code alone can't tell them
+# apart. Duration can: ExitOnForwardFailure aborts within a second, whereas a
+# tunnel you actually used was up for a while.
+if ($elapsed -lt 5) {
+    Write-Warning "ssh exited after $([math]::Round($elapsed, 1))s (code $code) — the tunnel never came up."
+    Write-Host "If it said 'remote port forwarding failed', port $Port is held on the server." -ForegroundColor Yellow
+    Write-Host "Re-run with -ForceRemote to clear it." -ForegroundColor Yellow
+} elseif ($code -eq 0 -or $code -eq 255) {
+    Write-Host "Tunnel closed after $([math]::Round($elapsed / 60, 1)) min." -ForegroundColor Green
 } else {
-    Write-Warning "ssh exited with code $code."
-    Write-Host "If it reported 'remote port forwarding failed', a previous tunnel is still holding port $Port on the server. Check there with: ss -ltn | grep $Port" -ForegroundColor Yellow
+    Write-Warning "ssh exited with code $code after $([math]::Round($elapsed, 1))s."
 }
